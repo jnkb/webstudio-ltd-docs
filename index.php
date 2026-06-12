@@ -171,7 +171,7 @@ $_ogData = (function() {
  ║  consider giving us a ⭐ on GitHub.                      ║
  ╚══════════════════════════════════════════════════════════╝
 -->
-<html lang="en" data-theme="dark">
+<html lang="de" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -2120,7 +2120,7 @@ body.reading-mode #reading-mode-btn { color: var(--accent) !important; }
         <i class="fa-solid fa-language"></i>
       </button>
       <div class="translate-dropdown" id="translate-dd">
-        <div class="translate-lang active" id="translate-origin-item" data-lang="origin" onclick="translateTo(S.settings.lang||'en')"><span class="flag" id="translate-origin-flag">🇬🇧</span> <span id="translate-origin-label">English (original)</span></div>
+        <div class="translate-lang active" id="translate-origin-item" data-lang="origin" onclick="translateTo(S.settings.lang||'de')"><span class="flag" id="translate-origin-flag">🇩🇪</span> <span id="translate-origin-label">Deutsch (original)</span></div>
         <div class="translate-sep"></div>
         <div class="translate-lang" data-lang="en" onclick="translateTo('en')"><span class="flag">🇬🇧</span> English</div>
         <div class="translate-lang" data-lang="cs" onclick="translateTo('cs')"><span class="flag">🇨🇿</span> Čeština</div>
@@ -2444,6 +2444,7 @@ body.reading-mode #reading-mode-btn { color: var(--accent) !important; }
       <div class="settings-section-label" data-i18n="settingsLanguage">Interface language</div>
       <div class="settings-row">
         <select id="lang-select" class="field-input" style="width:100%" onchange="setLang(this.value)">
+          <option value="de">🇩🇪 Deutsch</option>
           <option value="en">🇬🇧 English</option>
           <option value="sk">🇸🇰 Slovenčina</option>
         </select>
@@ -2766,6 +2767,146 @@ const TRANSLATIONS = {
     // ── Drag & drop ──
     dragReorder: 'Drag to reorder',
   },
+  de: {
+    btnEdit: 'Bearbeitungsmodus', btnPreview: 'Bearbeitungsmodus verlassen', btnSave: 'Speichern', btnDiscard: 'Verwerfen',
+    unsavedChanges: 'Sie haben ungespeicherte Änderungen',
+    loaderLoading: 'Wird geladen...', loaderFailed: 'Laden fehlgeschlagen. Prüfen Sie Ihre Verbindung.', loaderRetry: 'Erneut versuchen',
+    btnLogin: 'Anmelden', btnLoggedIn: 'Angemeldet', btnLogout: 'Abmelden',
+    btnSettings: 'Einstellungen', btnReadingMode: 'Lesemodus (Fokus)',
+    btnToggleTheme: 'Design umschalten', btnTranslate: 'Seite übersetzen',
+    btnEditSpace: 'Bereich bearbeiten', btnNewSpace: 'Neuer Bereich',
+    btnEditPage: 'Seite bearbeiten', btnSubpage: 'Unterseite', btnDeletePage: 'Löschen',
+    btnAddPageSection: 'Zu Abschnitt hinzufügen',
+    readingTimeLabel: (mins, words) => `${mins} Min. Lesezeit · ${words} Wörter`,
+    lastUpdated: 'Zuletzt aktualisiert',
+    navPrev: 'Zurück', navNext: 'Weiter',
+    searchPlaceholder: 'Suchen...', searchNoResults: 'Keine Ergebnisse',
+    savingLabel: 'Wird gespeichert...', savingBtn: 'Wird gespeichert...',
+    tocTitle: 'Auf dieser Seite', tocNoHeadings: 'Keine Überschriften', tocFeedback: 'War das hilfreich?',
+    tocShare: 'Teilen', tocShareCopied: 'Kopiert!',
+    modalAddTitle: 'Neue Seite', modalAddPageName: 'Seitentitel',
+    modalAddIcon: 'Icon (z. B. fa-file)', modalAddSection: 'Abschnitt (z. B. ERSTE SCHRITTE)',
+    modalAddTemplate: 'Vorlage', btnCreate: 'Erstellen', btnCancel: 'Abbrechen',
+    modalEditPageTitle: 'Seite bearbeiten', modalEditSubtitle: 'Beschreibung (optional)',
+    modalEditSubtitlePlaceholder: 'Kurze Seitenbeschreibung',
+    btnRemovePage: 'Entfernen', btnSaveChanges: 'Speichern',
+    modalEditSpaceTitle: 'Bereich bearbeiten', modalNewSpaceTitle: 'Neuer Bereich', modalSpaceName: 'Bereichsname',
+    modalSpaceIcon: 'Icon', btnRemoveSpace: 'Bereich entfernen',
+    settingsTitle: 'Einstellungen', settingsAppearance: 'Darstellung',
+    settingsSiteName: 'Website-Name', settingsAccentColor: 'Akzentfarbe',
+    settingsCustomColor: 'Benutzerdefinierte Farbe', settingsLogo: 'Logo',
+    settingsLogoUpload: 'Zum Hochladen des Logos klicken', settingsLogoFormats: 'PNG, SVG, WebP',
+    settingsLogoRemove: 'Logo entfernen',
+    settingsFavicon: 'Favicon', settingsFaviconSub: 'Browser-Tab-Symbol',
+    settingsFaviconUpload: 'Favicon hochladen', settingsFaviconRemove: 'Entfernen',
+    settingsTabTitle: 'Browser-Tab-Titel',
+    settingsTheme: 'Dunkel- / Hellmodus', settingsFooter: 'Fußzeile',
+    settingsFooterText: 'Text der Fußzeile', settingsFooterSub: 'Wird in der Seitenleiste angezeigt',
+    settingsPage: 'Seite',
+    settingsPassword: 'Passwort', settingsPasswordNote: 'Das Passwort wird sicher gespeichert (bcrypt)',
+    settingsLanguage: 'Oberflächensprache',
+    colorOrange: 'Orange', colorBlue: 'Blau', colorPurple: 'Lila',
+    colorGreen: 'Grün', colorPink: 'Pink', colorRed: 'Rot', colorYellow: 'Gelb',
+    authPassword: 'Passwort', authLogin: 'Anmelden', authWrong: 'Falsches Passwort',
+    authEnterPw: 'Passwort eingeben', authVerifying: 'Wird überprüft...', authConnError: 'Serververbindungsfehler',
+    authLogoutConfirmTitle: 'Abmelden?', authLogoutConfirmMsg: 'Sie wechseln in den Lesemodus.',
+    authLogoutOk: 'Abmelden',
+    setupTitle: 'Willkommen bei Webstudio Docs',
+    setupSubtitle: 'Richten Sie Ihr Admin-Passwort ein, um zu starten.',
+    setupPassword: 'Passwort',
+    setupConfirm: 'Passwort bestätigen',
+    setupBtn: 'Passwort erstellen',
+    setupCreating: 'Wird eingerichtet...',
+    setupMinLength: 'Mindestens 8 Zeichen',
+    setupUppercase: 'Großbuchstabe',
+    setupLowercase: 'Kleinbuchstabe',
+    setupNumber: 'Zahl',
+    setupSpecial: 'Sonderzeichen (!@#$...)',
+    setupMatch: 'Passwörter stimmen überein',
+    setupMismatch: 'Passwörter stimmen nicht überein',
+    setupError: 'Einrichtung fehlgeschlagen. Prüfen Sie die Serverberechtigungen.',
+    coverChange: 'Ändern', coverRemove: 'Entfernen', coverTop: 'Oben',
+    coverCenter: 'Mitte', coverBottom: 'Unten',
+    coverFitCover: 'Füllen', coverFitContain: 'Einpassen',
+    pageUntitled: 'Ohne Titel', pageDescPlaceholder: 'Kurze Seitenbeschreibung...',
+    pageSelectPrompt: 'Wählen Sie eine Seite aus der Navigation oder erstellen Sie eine neue.',
+    pageAddContent: 'Inhalt hinzufügen', pageEmpty: 'Diese Seite hat noch keinen Inhalt.',
+    shortcutEdit: 'Bearbeiten / Vorschau', shortcutSave: 'Speichern', shortcutUndo: 'Rückgängig', shortcutRedo: 'Wiederholen',
+    shortcutSearch: 'Suchen', shortcutReadingMode: 'Lesemodus',
+    shortcutShare: 'Seite teilen', shortcutPrevNext: 'Vorherige / Nächste Seite', shortcutShortcuts: 'Tastenkürzel',
+    blockMoveUp: 'Nach oben', blockMoveDown: 'Nach unten', blockDelete: 'Block löschen', blockDropHere: 'Hier ablegen',
+    blockHeading: 'Überschrift H', blockUnorderedList: 'Aufzählung',
+    blockOrderedList: 'Nummerierte Liste', blockAlignLeft: 'Linksbündig',
+    blockAlignCenter: 'Zentriert', blockFullWidth: 'Volle Breite',
+    blockWithBorder: 'Mit Rahmen', blockWithBackground: 'Mit Hintergrund',
+    blockShowHeadings: 'Überschrift anzeigen', blockHideHeadings: 'Überschrift ausblenden',
+    blockNumbered: 'Nummeriert', blockUnNumbered: 'Ohne Nummerierung',
+    blockCols: 'Spalten',
+    blockPickerHeading: 'Überschrift', blockPickerHeadingDesc: 'H1, H2, H3',
+    blockPickerText: 'Text', blockPickerTextDesc: 'Einfacher Absatz',
+    blockPickerList: 'Liste', blockPickerListDesc: 'Aufzählung oder Nummerierung',
+    blockPickerChecklist: 'Checkliste', blockPickerChecklistDesc: 'Aufgabenliste',
+    blockPickerImage: 'Bild', blockPickerImageDesc: 'Hochladen oder URL',
+    blockPickerVideo: 'Video', blockPickerVideoDesc: 'YouTube / Vimeo',
+    blockPickerCode: 'Code', blockPickerCodeDesc: 'Codeblock',
+    blockPickerQuote: 'Zitat', blockPickerQuoteDesc: 'Blockzitat',
+    blockPickerTable: 'Tabelle', blockPickerTableDesc: 'Zeilen und Spalten',
+    blockPickerCallout: 'Callout', blockPickerCalloutDesc: 'Info, Tipp, Warnung',
+    blockPickerCollapse: 'Einklappbar', blockPickerCollapseDesc: 'Aufklappbarer Abschnitt',
+    blockPickerTimeline: 'Zeitleiste', blockPickerTimelineDesc: 'Vertikale Zeitleiste',
+    blockPickerCards: 'Karten', blockPickerCardsDesc: 'Kartenraster',
+    blockPickerDelimiter: 'Trenner', blockPickerDelimiterDesc: 'Horizontale Linie',
+    calloutTitlePlaceholder: 'Titel (optional)', calloutMsgPlaceholder: 'Beschreibung...',
+    collapsiblePlaceholder: 'Abschnittsüberschrift...',
+    videoInsertLabel: 'Video einfügen', videoInsertDesc: 'YouTube- oder Vimeo-URL',
+    videoInsertBtn: 'Einfügen',
+    imageDropLabel: 'Bild hier ablegen oder <span class="lit-pick-btn">Dateien auswählen</span>',
+    imageDropSub: 'oder eine URL eingeben',
+    imageUploadLabel: 'Zum Hochladen klicken oder Bild hierher ziehen',
+    imageUrlPlaceholder: 'https://...', imageUrlBtn: 'Laden',
+    cardsColumns: 'Spalten:',
+    cardsLinkNone: 'Kein Link', cardsLinkLabel: 'Link zur Seite', cardsLinkExternal: 'Externe URL...',
+    cardsTitlePlaceholder: 'Titel', cardsDescPlaceholder: 'Beschreibung...',
+    cardsDefaultTitle1: 'Erste Schritte', cardsDefaultDesc1: 'Beschreibung der ersten Karte.',
+    cardsDefaultTitle2: 'Dokumentation', cardsDefaultDesc2: 'Beschreibung der zweiten Karte.',
+    cardsDefaultTitle3: 'API', cardsDefaultDesc3: 'Beschreibung der dritten Karte.',
+    timelineNumbered: 'Nummerierte Punkte', timelineAddBtn: 'Punkt hinzufügen',
+    timelineDatePlaceholder: 'Datum / Version', timelineTitlePlaceholder: 'Titel',
+    timelineDescPlaceholder: 'Beschreibung (unterstützt Zeilenumbrüche, Shift+Enter für eine neue Zeile)...',
+    editorPlaceholder: 'Klicken und losschreiben... oder / für Blöcke drücken',
+    toastSaved: 'Gespeichert', toastPageEdited: 'Seite aktualisiert',
+    toastPageDeleted: 'Seite gelöscht', toastSpaceSaved: 'Bereich gespeichert', toastSpaceCreated: 'Bereich erstellt',
+    toastSpaceDeleted: 'Bereich gelöscht', toastUploadError: 'Upload-Fehler',
+    toastOrderSaved: 'Reihenfolge gespeichert', toastFeedback: 'Danke für das Feedback ',
+    toastLastSpace: 'Der letzte Bereich kann nicht gelöscht werden',
+    toastLinkCopied: 'Link kopiert',
+    confirmDeletePageTitle: 'Seite löschen?',
+    confirmDeletePageMsg: (name, childCount) => childCount ? `"${name}" und ${childCount} Unterseite(n) werden dauerhaft gelöscht.` : `"${name}" wird dauerhaft gelöscht.`,
+    confirmDeleteSpaceTitle: 'Bereich löschen?',
+    confirmDeleteSpaceMsg: (name) => `Der Bereich "${name}" und alle zugehörigen Seiten werden dauerhaft gelöscht.`,
+    confirmDeleteOk: 'Löschen', confirmDeletePageOk: 'Löschen',
+    confirmLogoutTitle: 'Abmelden?', confirmLogoutMsg: 'Sie wechseln in den Lesemodus.',
+    confirmLogoutOk: 'Abmelden',
+    tplBlankLabel: 'Leer', tplBlankDesc: 'Von Grund auf beginnen',
+    tplDocLabel: 'Dokumentation', tplDocDesc: 'Strukturierter Artikel',
+    tplChangelogLabel: 'Changelog', tplChangelogDesc: 'Änderungsverlauf',
+    tplApiLabel: 'API Reference', tplApiDesc: 'API-Dokumentation',
+    tplTutorialLabel: 'Anleitung', tplTutorialDesc: 'Schritt für Schritt',
+    tplFaqLabel: 'FAQ', tplFaqDesc: 'Häufig gestellte Fragen',
+    defaultSpaceName: 'Meine Docs',
+    defaultPage1Title: 'Willkommen', defaultPage1Section: 'ERSTE SCHRITTE',
+    defaultPage1Subtitle: 'Willkommen in Ihrer Dokumentation.',
+    defaultPage2Title: 'Installation', defaultPage2Section: 'ERSTE SCHRITTE',
+    defaultPage2Subtitle: 'So stellen Sie die Docs auf Ihrer eigenen Subdomain bereit.',
+    defaultPage3Title: 'Inhalte erstellen', defaultPage3Section: 'ERSTELLEN',
+    defaultPage3Subtitle: 'So verwenden Sie den Editor und alle Blöcke.',
+    defaultPage4Title: 'Blöcke im Editor',
+    ctBold: 'Fett', ctItalic: 'Kursiv', ctUnderline: 'Unterstrichen',
+    ctLink: 'Link', ctRemoveFormat: 'Formatierung entfernen',
+    ctLinkPlaceholder: 'https://', ctLinkRemove: 'Link entfernen',
+    iconPickerSearch: 'Icons suchen...',
+    dragReorder: 'Zum Neuordnen ziehen',
+  },
   sk: {
     // ── Nav ──
     btnEdit: 'Editačný mód', btnPreview: 'Opustiť edit. mód', btnSave: 'Uložiť', btnDiscard: 'Zahodiť',
@@ -2938,11 +3079,18 @@ const TRANSLATIONS = {
   },
 };
 
-// t() — get translation for current language, fallback to 'en'
+const DEFAULT_INTERFACE_LANG = 'de';
+const LANG_LOCALES = {
+  de: 'de-DE',
+  en: 'en-US',
+  sk: 'sk-SK',
+};
+
+// t() — get translation for current language, fallback to default language
 function t(key, ...args) {
-  const lang = (typeof S !== 'undefined' ? S?.settings?.lang : null) || 'en';
-  const dict = TRANSLATIONS[lang] || TRANSLATIONS.en;
-  const val = dict[key] ?? TRANSLATIONS.en[key] ?? key;
+  const lang = (typeof S !== 'undefined' ? S?.settings?.lang : null) || DEFAULT_INTERFACE_LANG;
+  const dict = TRANSLATIONS[lang] || TRANSLATIONS[DEFAULT_INTERFACE_LANG];
+  const val = dict[key] ?? TRANSLATIONS[DEFAULT_INTERFACE_LANG][key] ?? TRANSLATIONS.en[key] ?? key;
   return typeof val === 'function' ? val(...args) : val;
 }
 
@@ -3054,7 +3202,7 @@ let S = {
     logoDataUrl: null,
     faviconDataUrl: null,
     tabTitle: 'Docs',
-    lang: 'en',
+    lang: DEFAULT_INTERFACE_LANG,
   }
 };
 
@@ -3153,7 +3301,7 @@ async function deletePageFromServer(id) {
 
 async function initDefaults() {
   const spaceId = uid();
-  S.spaces = [{ id: spaceId, name: 'Documentation', icon: 'fa-book' }];
+  S.spaces = [{ id: spaceId, name: t('defaultSpaceName'), icon: 'fa-book' }];
   S.pages = [
     { id: 'welcome', spaceId, parentId: null, title: t('defaultPage1Title'), icon: 'fa-house', subtitle: t('defaultPage1Subtitle'), section: t('defaultPage1Section'), order: 0, content: makeDefaultContent1(), _contentLoaded: true },
     { id: 'installation', spaceId, parentId: null, title: t('defaultPage2Title'), icon: 'fa-terminal', subtitle: t('defaultPage2Subtitle'), section: t('defaultPage2Section'), order: 1, content: makeDefaultContent2(), _contentLoaded: true },
@@ -3189,9 +3337,11 @@ function pageSlug(title) {
 function formatDate(iso) {
   if (!iso) return '';
   const d = new Date(iso);
-  const lang = S.settings?.lang || 'en';
-  return d.toLocaleDateString(lang === 'sk' ? 'sk-SK' : 'en-US', { day:'numeric', month:'long', year:'numeric' })
-    + (lang === 'sk' ? ' o ' : ', ') + d.toLocaleTimeString(lang === 'sk' ? 'sk-SK' : 'en-US', { hour:'2-digit', minute:'2-digit' });
+  const lang = S.settings?.lang || DEFAULT_INTERFACE_LANG;
+  const locale = LANG_LOCALES[lang] || LANG_LOCALES[DEFAULT_INTERFACE_LANG];
+  const separator = lang === 'sk' ? ' o ' : ', ';
+  return d.toLocaleDateString(locale, { day:'numeric', month:'long', year:'numeric' })
+    + separator + d.toLocaleTimeString(locale, { hour:'2-digit', minute:'2-digit' });
 }
 
 // ════════════════════════════════════════
@@ -3200,6 +3350,7 @@ function formatDate(iso) {
 function applySettings() {
   const s = S.settings;
   document.documentElement.dataset.theme = s.theme;
+  document.documentElement.lang = s.lang || DEFAULT_INTERFACE_LANG;
   document.getElementById('theme-btn').innerHTML = s.theme === 'dark'
     ? '<i class="fa-solid fa-moon"></i>' : '<i class="fa-solid fa-sun"></i>';
   document.getElementById('theme-toggle').className = 'toggle ' + (s.theme === 'dark' ? 'on' : '');
@@ -3280,23 +3431,22 @@ function setLang(lang) {
 
 // Maps interface lang code → {flag, name} for the GT "original" dropdown item
 const LANG_META = {
+  de: { flag: '🇩🇪', name: 'Deutsch' },
   en: { flag: '🇬🇧', name: 'English' },
   sk: { flag: '🇸🇰', name: 'Slovenčina' },
 };
 
 function updateTranslateOrigin() {
-  const lang = S.settings.lang || 'en';
+  const lang = S.settings.lang || DEFAULT_INTERFACE_LANG;
   const meta = LANG_META[lang] || { flag: '🌐', name: lang.toUpperCase() };
   const flagEl = document.getElementById('translate-origin-flag');
   const labelEl = document.getElementById('translate-origin-label');
   if (flagEl) flagEl.textContent = meta.flag;
   if (labelEl) labelEl.textContent = meta.name + ' (original)';
-  // Hide the origin item from list if current lang matches a listed lang
-  const enItem = document.querySelector('.translate-lang[data-lang="en"]');
-  const skItem = document.querySelector('.translate-lang[data-lang="sk"]');
-  // Show/hide EN and SK from the list based on what's the origin
-  if (enItem) enItem.style.display = lang === 'en' ? 'none' : '';
-  if (skItem) skItem.style.display = lang === 'sk' ? 'none' : '';
+  document.querySelectorAll('.translate-lang[data-lang]').forEach(item => {
+    if (item.id === 'translate-origin-item') return;
+    item.style.display = item.dataset.lang === lang ? 'none' : '';
+  });
 }
 
 let _settingsSaveTimer = null;
@@ -5955,7 +6105,7 @@ function updateAdminUI() {
   if (translateWrap) translateWrap.style.display = S.authed ? 'none' : '';
   if (S.authed) {
     // Reset prekladu späť na originál
-    if (typeof doGTranslate === 'function') { const sl = S.settings.lang || 'en'; doGTranslate(sl+'|'+sl); }
+    if (typeof doGTranslate === 'function') { const sl = S.settings.lang || DEFAULT_INTERFACE_LANG; doGTranslate(sl+'|'+sl); }
     // Odstráň Google Translate iframe a toolbar z DOM
     document.querySelectorAll('iframe.skiptranslate, .goog-te-banner-frame, #goog-gt-tt').forEach(el => el.remove());
     // Vymaž googtrans cookie
@@ -6187,7 +6337,7 @@ function loadTranslateWidget() {
 
 function googleTranslateElementInit() {
   new google.translate.TranslateElement({
-    pageLanguage: S.settings.lang || 'en',
+    pageLanguage: S.settings.lang || DEFAULT_INTERFACE_LANG,
     includedLanguages: 'en,sk,cs,de,fr,es,pl,uk,ru',
     autoDisplay: false,
   }, 'google_translate_element');
@@ -6195,7 +6345,7 @@ function googleTranslateElementInit() {
 
 function translateTo(lang) {
   document.getElementById('translate-dd').classList.remove('open');
-  const srcLang = S.settings.lang || 'en';
+  const srcLang = S.settings.lang || DEFAULT_INTERFACE_LANG;
 
   if (lang === srcLang) {
     // Restore original

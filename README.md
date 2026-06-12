@@ -117,7 +117,7 @@ No `npm install`. No environment variables. No database migrations. No Docker. J
 
 ### Developer-Friendly
 - **Easy to extend** — it's just HTML, CSS, JS and PHP. No framework, no abstraction layers
-- **i18n ready** — English & Slovak built-in, add your language by copying one object
+- **i18n ready** — English, German, and Slovak built-in, add your language by copying one object
 - **Page templates** — Blank, Documentation, Changelog, API Reference, Tutorial, FAQ
 - **Auto-save** — never lose work
 
@@ -146,7 +146,7 @@ Webstudio Docs is actively developed. Here's what we're working on:
 ### Coming to Open Source (Free)
 - [ ] Multi-user support with roles (admin / editor / viewer)
 - [ ] Markdown import & export
-- [ ] More languages (German, French, Spanish, Czech — PRs welcome!)
+- [ ] More languages (French, Spanish, Czech — PRs welcome!)
 - [ ] Page versioning / history
 - [ ] Keyboard shortcuts in sidebar navigation
 - [ ] And more...
