@@ -4792,7 +4792,7 @@ async function initEditor(page) {
   let editorReady = false;
 
   const tools = {
-    header: { class: Header, config: { levels: [1,2,3], defaultLevel: 2 } },
+    header: { class: Header, config: { levels: [1,2,3], defaultLevel: 1 } },
     list: { class: NestedList, inlineToolbar: true, config: { defaultStyle: 'unordered' } },
     checklist: { class: Checklist, inlineToolbar: true },
     code: { class: CodeTool },
@@ -6428,10 +6428,11 @@ let slashQuery = '';
 let slashActiveIdx = 0;
 let slashAnchorBlock = null;
 
-function openSlashMenu(x, y, query) {
+function openSlashMenu(x, y, query, context = null) {
   closeSlashMenu();
   slashQuery = query;
   slashActiveIdx = 0;
+  slashAnchorBlock = context;
 
   const filtered = getSlashCommands().filter(c =>
     !query || c.label.toLowerCase().includes(query.toLowerCase()) || c.id.includes(query.toLowerCase())
@@ -6466,9 +6467,10 @@ function openSlashMenu(x, y, query) {
   contentWrap.appendChild(slashMenu);
 }
 
-function closeSlashMenu() {
+function closeSlashMenu(resetContext = true) {
   slashMenu?.remove();
   slashMenu = null;
+  if (resetContext) slashAnchorBlock = null;
 }
 
 function updateSlashActive(delta) {
@@ -6481,17 +6483,12 @@ function updateSlashActive(delta) {
 }
 
 async function insertSlashBlock(type) {
-  closeSlashMenu();
+  const context = slashAnchorBlock;
+  closeSlashMenu(false);
   if (!editor) return;
 
-  // Get current block index before any manipulation
-  const currentIdx = editor.blocks.getCurrentBlockIndex();
-
-  // Clear the slash text from current block by deleting it and inserting clean block
-  try { await editor.blocks.delete(currentIdx); } catch(e) {}
-
   const blockMap = {
-    header:    { type: 'header',    data: { text: '', level: 2 } },
+    header:    { type: 'header',    data: { text: '', level: 1 } },
     paragraph: { type: 'paragraph', data: { text: '' } },
     list:      { type: 'list',      data: { style: 'unordered', items: [{ content: '', items: [] }] } },
     checklist: { type: 'checklist', data: { items: [{ text: '', checked: false }] } },
@@ -6509,16 +6506,25 @@ async function insertSlashBlock(type) {
 
   const block = blockMap[type];
   if (!block) return;
+
   try {
-    // Insert at same position, focus it
-    const safeIdx = Math.min(currentIdx, editor.blocks.getBlocksCount());
-    editor.blocks.insert(block.type, block.data, undefined, safeIdx, true);
-    // Force Editor.js to re-sync internal state with DOM
-    // This prevents the "delete wrong block" bug after insert
-    const saved = await editor.save();
-    await editor.render(saved);
-    editor.caret.setToBlock(safeIdx);
+    const currentIdx = editor.blocks.getCurrentBlockIndex();
+    let focusIdx = Math.min(Math.max(currentIdx, 0), editor.blocks.getBlocksCount());
+
+    if (context?.mode === 'replace') {
+      focusIdx = Math.min(Math.max(context.index ?? currentIdx, 0), Math.max(editor.blocks.getBlocksCount() - 1, 0));
+      editor.blocks.insert(block.type, block.data, undefined, focusIdx, true, true);
+    } else {
+      focusIdx = Math.min(Math.max(context?.index ?? currentIdx + 1, 0), editor.blocks.getBlocksCount());
+      editor.blocks.insert(block.type, block.data, undefined, focusIdx, true);
+    }
+
+    requestAnimationFrame(() => editor?.caret?.setToBlock?.(focusIdx));
+    markDirty();
+    scheduleUndoSnapshot();
   } catch(e) {}
+
+  slashAnchorBlock = null;
 }
 
 // Listen for slash on editor
@@ -6526,15 +6532,35 @@ document.addEventListener('keydown', (e) => {
   if (!S.editMode || !editor) return;
 
   if (slashMenu) {
-    if (e.key === 'ArrowDown') { e.preventDefault(); updateSlashActive(1); return; }
-    if (e.key === 'ArrowUp')   { e.preventDefault(); updateSlashActive(-1); return; }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      updateSlashActive(1);
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      updateSlashActive(-1);
+      return;
+    }
     if (e.key === 'Enter') {
       e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
       const active = slashMenu?.querySelector('.slash-item.active');
       if (active) insertSlashBlock(active.dataset.id);
       return;
     }
-    if (e.key === 'Escape') { closeSlashMenu(); return; }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      closeSlashMenu();
+      return;
+    }
   }
 }, true);
 
@@ -6551,7 +6577,10 @@ document.addEventListener('input', (e) => {
       const range = window.getSelection()?.getRangeAt(0);
       if (range) {
         const rect = range.getBoundingClientRect();
-        openSlashMenu(rect.left, rect.bottom, query);
+        openSlashMenu(rect.left, rect.bottom, query, {
+          mode: 'replace',
+          index: editor.blocks.getCurrentBlockIndex(),
+        });
         return;
       }
     }
@@ -6578,7 +6607,10 @@ document.addEventListener('click', (e) => {
   const scrollTop = contentWrap.scrollTop;
 
   // Open our slash menu aligned to the + button
-  openSlashMenu(rect.left, rect.bottom, '');
+  openSlashMenu(rect.left, rect.bottom, '', {
+    mode: 'insert',
+    index: editor.blocks.getCurrentBlockIndex() + 1,
+  });
 }, true);
 
 // ════════════════════════════════════════
