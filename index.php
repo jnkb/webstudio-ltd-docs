@@ -2230,13 +2230,15 @@ body.reading-mode #reading-mode-btn { color: var(--accent) !important; }
         </div>
       </div>
       <div id="toc-admin-rating-slot"></div>
-      <div class="toc-sep"></div>
-      <div class="toc-share-box">
-        <div class="toc-feedback-label" data-i18n="tocShare">Share</div>
-        <button class="toc-share-btn" onclick="sharePage()">
-          <i class="fa-solid fa-link"></i>
-          <span id="toc-share-label" data-i18n="tocShare">Share</span>
-        </button>
+        <div id="toc-share-section">
+          <div class="toc-sep"></div>
+          <div class="toc-share-box">
+            <div class="toc-feedback-label" data-i18n="tocShare">Share</div>
+            <button class="toc-share-btn" onclick="sharePage()">
+              <i class="fa-solid fa-link"></i>
+              <span id="toc-share-label" data-i18n="tocShare">Share</span>
+            </button>
+          </div>
       </div>
     </div>
   </main>
@@ -2275,7 +2277,7 @@ body.reading-mode #reading-mode-btn { color: var(--accent) !important; }
     <div class="shortcut-row"><span class="shortcut-label" data-i18n="shortcutSearch">Search</span><span class="shortcut-keys"><kbd>⌘</kbd><kbd>K</kbd></span></div>
     <div class="shortcut-row"><span class="shortcut-label">Slash menu</span><span class="shortcut-keys"><kbd>⌘</kbd><kbd>/</kbd></span></div>
     <div class="shortcut-row"><span class="shortcut-label" data-i18n="shortcutReadingMode">Reading mode</span><span class="shortcut-keys"><kbd>⌘</kbd><kbd>R</kbd></span></div>
-    <div class="shortcut-row"><span class="shortcut-label" data-i18n="shortcutShare">Share page</span><span class="shortcut-keys"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>C</kbd></span></div>
+    <div class="shortcut-row" id="shortcut-share-row"><span class="shortcut-label" data-i18n="shortcutShare">Share page</span><span class="shortcut-keys"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>C</kbd></span></div>
     <div class="shortcut-row"><span class="shortcut-label" data-i18n="shortcutPrevNext">Previous / Next page</span><span class="shortcut-keys"><kbd>←</kbd><kbd>→</kbd></span></div>
     <div class="shortcut-row"><span class="shortcut-label" data-i18n="shortcutShortcuts">Shortcuts</span><span class="shortcut-keys"><kbd>?</kbd></span></div>
     <div class="shortcut-row"><span class="shortcut-label">Esc</span><span class="shortcut-keys"><kbd>Esc</kbd></span></div>
@@ -2483,6 +2485,13 @@ body.reading-mode #reading-mode-btn { color: var(--accent) !important; }
           <div class="settings-row-label" data-i18n="settingsTabTitle">Browser tab title</div>
         </div>
         <input class="field-input" type="text" id="tab-title-input" style="width:160px;text-align:right" placeholder="Docs" oninput="updateTabTitle(this.value)">
+      </div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-row-label" data-i18n="settingsShareSection">Share section</div>
+          <div class="settings-row-sub" data-i18n="settingsShareSectionSub">Show the share block in the page sidebar</div>
+        </div>
+        <button class="toggle on" id="share-section-toggle" onclick="toggleShareSectionAvailability()"></button>
       </div>
     </div>
 
@@ -2695,6 +2704,8 @@ const TRANSLATIONS = {
     settingsTheme: 'Dark / Light mode', settingsFooter: 'Footer',
     settingsFooterText: 'Footer text', settingsFooterSub: 'Shown in sidebar',
     settingsPage: 'Page',
+    settingsShareSection: 'Share section',
+    settingsShareSectionSub: 'Show the share block in the page sidebar',
     settingsPassword: 'Password', settingsPasswordNote: 'Password is securely stored (bcrypt)',
     settingsLanguage: 'Interface language',
     settingsTranslateToggle: 'Translate button',
@@ -2862,6 +2873,8 @@ const TRANSLATIONS = {
     settingsTheme: 'Dunkel- / Hellmodus', settingsFooter: 'Fußzeile',
     settingsFooterText: 'Text der Fußzeile', settingsFooterSub: 'Wird in der Seitenleiste angezeigt',
     settingsPage: 'Seite',
+    settingsShareSection: 'Teilen-Bereich',
+    settingsShareSectionSub: 'Share-Block in der Seitenleiste der Dokumentseite anzeigen',
     settingsPassword: 'Passwort', settingsPasswordNote: 'Das Passwort wird sicher gespeichert (bcrypt)',
     settingsLanguage: 'Oberflächensprache',
     settingsTranslateToggle: 'Übersetzungsbutton',
@@ -3017,6 +3030,8 @@ const TRANSLATIONS = {
     settingsTheme: 'Tmavý / Svetlý režim', settingsFooter: 'Päta',
     settingsFooterText: 'Text päty', settingsFooterSub: 'Zobrazené v bočnom paneli',
     settingsPage: 'Stránka',
+    settingsShareSection: 'Sekcia zdieľania',
+    settingsShareSectionSub: 'Zobraziť blok zdieľania v bočnom paneli stránky',
     settingsPassword: 'Heslo', settingsPasswordNote: 'Heslo je bezpečne uložené (bcrypt)',
     settingsLanguage: 'Jazyk rozhrania',
     settingsTranslateToggle: 'Tlačidlo prekladu',
@@ -3274,6 +3289,7 @@ let S = {
     faviconDataUrl: null,
     tabTitle: 'Docs',
     lang: DEFAULT_INTERFACE_LANG,
+    shareSectionEnabled: true,
     translateEnabled: true,
   }
 };
@@ -3529,10 +3545,15 @@ function applySettings() {
   const langSel = document.getElementById('lang-select');
   if (langSel && s.lang) langSel.value = s.lang;
 
+  // share section toggle sync
+  const shareSectionToggle = document.getElementById('share-section-toggle');
+  if (shareSectionToggle) shareSectionToggle.className = 'toggle ' + (isShareSectionEnabled() ? 'on' : '');
+
   // translate toggle sync
   const translateToggle = document.getElementById('translate-toggle');
   if (translateToggle) translateToggle.className = 'toggle ' + (isTranslateEnabled() ? 'on' : '');
 
+  applyShareSectionAvailability();
   applyTranslateAvailability();
 
   // apply translations to all data-i18n elements
@@ -3541,6 +3562,10 @@ function applySettings() {
 
 function isTranslateEnabled() {
   return S.settings.translateEnabled !== false;
+}
+
+function isShareSectionEnabled() {
+  return S.settings.shareSectionEnabled !== false;
 }
 
 function setLang(lang) {
@@ -3558,6 +3583,12 @@ function setLang(lang) {
 
 function toggleTranslateAvailability() {
   S.settings.translateEnabled = !isTranslateEnabled();
+  saveSettingsDebounced();
+  applySettings();
+}
+
+function toggleShareSectionAvailability() {
+  S.settings.shareSectionEnabled = !isShareSectionEnabled();
   saveSettingsDebounced();
   applySettings();
 }
@@ -3612,6 +3643,14 @@ function applyTranslateAvailability() {
   }
 
   loadTranslateWidget();
+}
+
+function applyShareSectionAvailability() {
+  const shareSection = document.getElementById('toc-share-section');
+  if (shareSection) shareSection.style.display = isShareSectionEnabled() ? '' : 'none';
+
+  const shortcutShareRow = document.getElementById('shortcut-share-row');
+  if (shortcutShareRow) shortcutShareRow.style.display = isShareSectionEnabled() ? '' : 'none';
 }
 
 let _settingsSaveTimer = null;
@@ -7221,6 +7260,7 @@ function toggleReadingMode() {
 //  SHARE PAGE
 // ════════════════════════════════════════
 function sharePage() {
+  if (!isShareSectionEnabled()) return;
   const base = window.location.origin + window.location.pathname.replace(/index\.php$/, '');
   const pageId = S.currentPageId || '';
   const url = pageId ? `${base}?page=${encodeURIComponent(pageId)}` : base;
@@ -7401,7 +7441,7 @@ document.addEventListener('keydown', e => {
   }
 
   // Cmd+Shift+C = share
-  if (meta && e.shiftKey && e.key === 'c') {
+  if (meta && e.shiftKey && e.key === 'c' && isShareSectionEnabled()) {
     e.preventDefault();
     sharePage();
   }
