@@ -62,6 +62,145 @@ function jsonWrite($path, $data) {
     return file_put_contents($path, json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) !== false;
 }
 
+function pageFilePath($id) {
+    return PAGES_DIR . "/{$id}.json";
+}
+
+function pageRatingsPath($id) {
+    return PAGES_DIR . "/{$id}_ratings.csv";
+}
+
+function pageRatingSummaryPath($id) {
+    return PAGES_DIR . "/{$id}_rating.json";
+}
+
+function deletePageArtifacts($id) {
+    foreach ([pageFilePath($id), pageRatingsPath($id), pageRatingSummaryPath($id)] as $path) {
+        if (file_exists($path)) unlink($path);
+    }
+}
+
+function defaultRatingSummary() {
+    return ['-1' => 0, '0' => 0, '1' => 0];
+}
+
+function sanitizeRatingSummary($summary) {
+    if (!is_array($summary)) return null;
+
+    $clean = defaultRatingSummary();
+    foreach (array_keys($clean) as $key) {
+        $clean[$key] = max(0, (int)($summary[$key] ?? 0));
+    }
+
+    return $clean;
+}
+
+function normalizeRatingValue($rating) {
+    $value = is_string($rating) ? trim($rating) : (string)$rating;
+    $map = [
+        '1' => '1',
+        '0' => '0',
+        '-1' => '-1',
+        '👍' => '1',
+        '😐' => '0',
+        '👎' => '-1',
+    ];
+
+    return $map[$value] ?? null;
+}
+
+function ratingSummaryTotal($summary) {
+    return (int)$summary['-1'] + (int)$summary['0'] + (int)$summary['1'];
+}
+
+function ratingSummaryAverage($summary) {
+    $total = ratingSummaryTotal($summary);
+    if ($total <= 0) return null;
+
+    return (((int)$summary['1']) - ((int)$summary['-1'])) / $total;
+}
+
+function rebuildRatingSummary($id) {
+    $summary = defaultRatingSummary();
+    $csvPath = pageRatingsPath($id);
+
+    if (file_exists($csvPath)) {
+        $handle = fopen($csvPath, 'rb');
+        if ($handle !== false) {
+            while (($row = fgetcsv($handle, 0, ',', '"', '\\')) !== false) {
+                $rating = normalizeRatingValue($row[1] ?? '');
+                if ($rating !== null) $summary[$rating]++;
+            }
+            fclose($handle);
+        }
+    }
+
+    jsonWrite(pageRatingSummaryPath($id), $summary);
+    return $summary;
+}
+
+function loadRatingSummary($id) {
+    $summary = sanitizeRatingSummary(jsonRead(pageRatingSummaryPath($id), null));
+    if ($summary !== null) return $summary;
+    return rebuildRatingSummary($id);
+}
+
+function pageJsonFiles() {
+    return array_values(array_filter(glob(PAGES_DIR . '/*.json') ?: [], function ($path) {
+        return !preg_match('/_rating\.json$/', basename($path));
+    }));
+}
+
+function getClientIp() {
+    $candidates = [
+        $_SERVER['HTTP_CF_CONNECTING_IP'] ?? '',
+        $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '',
+        $_SERVER['REMOTE_ADDR'] ?? '',
+    ];
+
+    foreach ($candidates as $candidate) {
+        $candidate = trim(explode(',', $candidate)[0]);
+        if ($candidate !== '') return $candidate;
+    }
+
+    return '';
+}
+
+function anonymizeIp($ip) {
+    if (!$ip) return 'unknown';
+
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+        $parts = explode('.', $ip);
+        $parts[3] = '0';
+        return implode('.', $parts);
+    }
+
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+        $packed = @inet_pton($ip);
+        if ($packed === false) return 'unknown';
+        $masked = substr($packed, 0, 8) . str_repeat("\0", 8);
+        $anon = @inet_ntop($masked);
+        return $anon !== false ? $anon : 'unknown';
+    }
+
+    return 'unknown';
+}
+
+function appendRating($id, $rating, $anonIp) {
+    $path = pageRatingsPath($id);
+    $handle = fopen($path, 'ab');
+    if ($handle === false) return false;
+
+    $ok = false;
+    if (flock($handle, LOCK_EX)) {
+        $ok = fputcsv($handle, [gmdate('c'), $rating, $anonIp], ',', '"', '\\') !== false;
+        flock($handle, LOCK_UN);
+    }
+
+    fclose($handle);
+    return $ok;
+}
+
 function ok($data = []) {
     echo json_encode(['ok' => true, '_ws' => 'webstudio.ltd'] + $data);
     exit;
@@ -91,7 +230,7 @@ case 'load':
     // Load all pages (meta only, content is loaded separately)
     $pages = [];
     if (is_dir(PAGES_DIR)) {
-        foreach (glob(PAGES_DIR . '/*.json') as $file) {
+        foreach (pageJsonFiles() as $file) {
             $page = jsonRead($file);
             if ($page) $pages[] = $page;
         }
@@ -100,11 +239,54 @@ case 'load':
 
 // ── LOAD PAGE — load content of a single page ──
 case 'load_page':
+    global $authed;
     $id = preg_replace('/[^a-zA-Z0-9_-]/', '', $_GET['id'] ?? '');
     if (!$id) err('Missing id');
-    $page = jsonRead(PAGES_DIR . "/{$id}.json");
+    $page = jsonRead(pageFilePath($id));
     if (!$page) err('Page not found', 404);
-    ok(['page' => $page]);
+    $response = ['page' => $page];
+    if ($authed) {
+        $summary = loadRatingSummary($id);
+        $response['ratingStats'] = $summary;
+        $response['ratingAverage'] = ratingSummaryAverage($summary);
+        $response['ratingCount'] = ratingSummaryTotal($summary);
+        $response['ratingCsvAvailable'] = file_exists(pageRatingsPath($id));
+    }
+    ok($response);
+
+// ── SAVE RATING — public feedback for readers ──
+case 'save_rating':
+    $body = json_decode(file_get_contents('php://input'), true);
+    $id = preg_replace('/[^a-zA-Z0-9_-]/', '', $body['id'] ?? '');
+    $rating = normalizeRatingValue($body['rating'] ?? '');
+    if (!$id) err('Missing id');
+    if ($rating === null) err('Invalid rating');
+    if (!file_exists(pageFilePath($id))) err('Page not found', 404);
+
+    $summary = loadRatingSummary($id);
+    $anonIp = anonymizeIp(getClientIp());
+    if (!appendRating($id, $rating, $anonIp)) err('Failed to save rating', 500);
+    $summary[$rating]++;
+    if (!jsonWrite(pageRatingSummaryPath($id), $summary)) err('Failed to update rating summary', 500);
+    ok([
+        'ratingStats' => $summary,
+        'ratingAverage' => ratingSummaryAverage($summary),
+        'ratingCount' => ratingSummaryTotal($summary),
+    ]);
+
+// ── DOWNLOAD RATINGS CSV — editor only ──
+case 'download_ratings':
+    requireAuth();
+    $id = preg_replace('/[^a-zA-Z0-9_-]/', '', $_GET['id'] ?? '');
+    if (!$id) err('Missing id');
+    $path = pageRatingsPath($id);
+    if (!file_exists($path)) err('Ratings not found', 404);
+
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $id . '_ratings.csv"');
+    header('Content-Length: ' . filesize($path));
+    readfile($path);
+    exit;
 
 // ── SAVE SPACES ──
 case 'save_spaces':
@@ -129,7 +311,7 @@ case 'save_page':
     $page = $body['page'] ?? null;
     if (!$page || empty($page['id'])) err('Missing page or id');
     $id = preg_replace('/[^a-zA-Z0-9_-]/', '', $page['id']);
-    jsonWrite(PAGES_DIR . "/{$id}.json", $page);
+    jsonWrite(pageFilePath($id), $page);
     ok();
 
 // ── SAVE ALL PAGES — bulk save (on reorder, delete, etc.) ──
@@ -141,20 +323,20 @@ case 'save_pages':
 
     // Find existing files and delete pages that are no longer in the list
     $existingIds = [];
-    foreach (glob(PAGES_DIR . '/*.json') as $f) {
+    foreach (pageJsonFiles() as $f) {
         $existingIds[] = basename($f, '.json');
     }
     $newIds = array_column($pages, 'id');
     foreach ($existingIds as $eid) {
         if (!in_array($eid, $newIds)) {
-            unlink(PAGES_DIR . "/{$eid}.json");
+            deletePageArtifacts($eid);
         }
     }
     // Save each page
     foreach ($pages as $page) {
         if (empty($page['id'])) continue;
         $id = preg_replace('/[^a-zA-Z0-9_-]/', '', $page['id']);
-        jsonWrite(PAGES_DIR . "/{$id}.json", $page);
+        jsonWrite(pageFilePath($id), $page);
     }
     ok();
 
@@ -164,8 +346,7 @@ case 'delete_page':
     $body = json_decode(file_get_contents('php://input'), true);
     $id = preg_replace('/[^a-zA-Z0-9_-]/', '', $body['id'] ?? '');
     if (!$id) err('Missing id');
-    $file = PAGES_DIR . "/{$id}.json";
-    if (file_exists($file)) unlink($file);
+    deletePageArtifacts($id);
     ok();
 
 // ── UPLOAD IMAGE ──

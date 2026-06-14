@@ -1392,6 +1392,49 @@ h3.ce-header { font-size: 17px; font-weight: 600; margin: 0 0 2px; }
   transition: all var(--transition);
 }
 .fb-btn:hover { background: var(--bg3); border-color: var(--border2); color: var(--text2); }
+.fb-btn.active, .fb-btn.active:hover {
+  background: rgba(var(--accent-rgb),0.12);
+  border-color: rgba(var(--accent-rgb),0.4);
+  color: var(--accent);
+}
+.fb-btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+.toc-admin-rating {
+  display: flex; flex-direction: column; gap: 10px;
+}
+.toc-rating-avg-row {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+}
+.toc-rating-avg-label,
+.toc-rating-count {
+  font-size: 12px; color: var(--text3);
+}
+.toc-rating-avg-value {
+  font-size: 18px; color: var(--text); font-variant-numeric: tabular-nums;
+}
+.toc-rating-pills {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px;
+}
+.toc-rating-pill {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding: 8px 9px; border-radius: 8px;
+  background: var(--bg3); border: 1px solid var(--border);
+  color: var(--text2); font-size: 12px;
+}
+.toc-rating-pill strong {
+  color: var(--text); font-variant-numeric: tabular-nums;
+}
+.toc-download-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; padding: 8px 10px; border-radius: 8px;
+  background: var(--bg3); border: 1px solid var(--border);
+  color: var(--text2); font: 13px var(--font); text-decoration: none;
+  transition: all .15s;
+}
+.toc-download-btn:hover { background: var(--bg4); color: var(--text); border-color: var(--border2); }
+.toc-download-btn i { color: var(--accent); font-size: 12px; flex-shrink: 0; }
 
 /* ════════════════════════════
    PAGE BOTTOM NAV
@@ -2177,13 +2220,16 @@ body.reading-mode #reading-mode-btn { color: var(--accent) !important; }
     <div class="toc-panel" id="toc-panel">
       <div class="toc-head" data-i18n="tocTitle">On this page</div>
       <div id="toc-items"></div>
-      <div class="toc-sep"></div>
-      <div class="toc-feedback-label" data-i18n="tocFeedback">Was this helpful?</div>
-      <div class="toc-feedback-btns">
-        <button class="fb-btn" onclick="react('👍')" title="Yes"><i class="fa-regular fa-face-smile"></i></button>
-        <button class="fb-btn" onclick="react('😐')" title="Neutral"><i class="fa-regular fa-face-meh"></i></button>
-        <button class="fb-btn" onclick="react('👎')" title="No"><i class="fa-regular fa-face-frown"></i></button>
+      <div id="toc-feedback-box">
+        <div class="toc-sep"></div>
+        <div class="toc-feedback-label" data-i18n="tocFeedback">Was this helpful?</div>
+        <div class="toc-feedback-btns">
+            <button class="fb-btn" type="button" data-rating="-1" data-icon="👎" onclick="react(this.dataset.rating, this.dataset.icon)" title="No"><i class="fa-regular fa-face-frown"></i></button>
+            <button class="fb-btn" type="button" data-rating="0" data-icon="😐" onclick="react(this.dataset.rating, this.dataset.icon)" title="Neutral"><i class="fa-regular fa-face-meh"></i></button>
+            <button class="fb-btn" type="button" data-rating="1" data-icon="👍" onclick="react(this.dataset.rating, this.dataset.icon)" title="Yes"><i class="fa-regular fa-face-smile"></i></button>
+        </div>
       </div>
+      <div id="toc-admin-rating-slot"></div>
       <div class="toc-sep"></div>
       <div class="toc-share-box">
         <div class="toc-feedback-label" data-i18n="tocShare">Share</div>
@@ -2741,6 +2787,10 @@ const TRANSLATIONS = {
     toastPageDeleted: 'Page deleted', toastSpaceSaved: 'Space saved', toastSpaceCreated: 'Space created',
     toastSpaceDeleted: 'Space deleted', toastUploadError: 'Upload error',
     toastOrderSaved: 'Order saved', toastFeedback: 'Thanks for the feedback ',
+    toastFeedbackError: 'Could not save feedback',
+    ratingStatsTitle: 'Feedback stats', ratingAverage: 'Average', ratingVotes: 'votes',
+    ratingNoVotes: 'No ratings yet', ratingDownloadCsv: 'Download CSV',
+    ratingPositive: 'Helpful', ratingNeutral: 'Neutral', ratingNegative: 'Not helpful',
     toastLastSpace: "Can't delete the last space",
     toastLinkCopied: 'Link copied',
     // ── Confirm dialogs ──
@@ -2889,6 +2939,10 @@ const TRANSLATIONS = {
     toastPageDeleted: 'Seite gelöscht', toastSpaceSaved: 'Bereich gespeichert', toastSpaceCreated: 'Bereich erstellt',
     toastSpaceDeleted: 'Bereich gelöscht', toastUploadError: 'Upload-Fehler',
     toastOrderSaved: 'Reihenfolge gespeichert', toastFeedback: 'Danke für das Feedback ',
+    toastFeedbackError: 'Feedback konnte nicht gespeichert werden',
+    ratingStatsTitle: 'Feedback-Statistik', ratingAverage: 'Durchschnitt', ratingVotes: 'Stimmen',
+    ratingNoVotes: 'Noch keine Bewertungen', ratingDownloadCsv: 'CSV herunterladen',
+    ratingPositive: 'Hilfreich', ratingNeutral: 'Neutral', ratingNegative: 'Nicht hilfreich',
     toastLastSpace: 'Der letzte Bereich kann nicht gelöscht werden',
     toastLinkCopied: 'Link kopiert',
     confirmDeletePageTitle: 'Seite löschen?',
@@ -3055,6 +3109,10 @@ const TRANSLATIONS = {
     toastPageDeleted: 'Stránka vymazaná', toastSpaceSaved: 'Priestor uložený', toastSpaceCreated: 'Priestor vytvorený',
     toastSpaceDeleted: 'Priestor odstránený', toastUploadError: 'Chyba pri nahrávaní obrázka',
     toastOrderSaved: 'Poradie uložené', toastFeedback: 'Ďakujeme za feedback ',
+    toastFeedbackError: 'Feedback sa nepodarilo uložiť',
+    ratingStatsTitle: 'Štatistika feedbacku', ratingAverage: 'Priemer', ratingVotes: 'hlasov',
+    ratingNoVotes: 'Zatiaľ žiadne hodnotenia', ratingDownloadCsv: 'Stiahnuť CSV',
+    ratingPositive: 'Užitočné', ratingNeutral: 'Neutrálne', ratingNegative: 'Neužitočné',
     toastLastSpace: 'Nemôžeš odstrániť posledný priestor',
     toastLinkCopied: 'Skopírované!',
     // ── Confirm dialogs ──
@@ -3223,6 +3281,12 @@ let S = {
 let editor = null;
 let saveTimer = null;
 let iconPreviewTimeout = null;
+let feedbackSaving = false;
+
+const FEEDBACK_STORAGE_KEY = 'ws_docs_feedback';
+const FEEDBACK_VALUE_MAP = { '1': '1', '0': '0', '-1': '-1', '👍': '1', '😐': '0', '👎': '-1' };
+const FEEDBACK_ICON_BY_VALUE = { '1': '👍', '0': '😐', '-1': '👎' };
+const EMPTY_RATING_STATS = { '-1': 0, '0': 0, '1': 0 };
 
 // ════════════════════════════════════════
 //  STORAGE
@@ -3262,16 +3326,55 @@ async function load() {
 
 async function loadPageContent(pageId) {
   const page = S.pages.find(p => p.id === pageId);
-  if (!page || page._contentLoaded) return page;
+  const needsContent = page && !page._contentLoaded;
+  const needsRatings = page && S.authed && !page._ratingsLoaded;
+  if (!page || (!needsContent && !needsRatings)) return page;
   try {
     const r = await fetch(`api.php?action=load_page&id=${pageId}`, { credentials: 'same-origin' });
     const d = await r.json();
     if (d.ok && d.page) {
       Object.assign(page, d.page);
       page._contentLoaded = true;
+      if (S.authed) applyPageRatingData(page, d);
+      else clearPageRatingData(page);
     }
   } catch(e) {}
   return page;
+}
+
+function applyPageRatingData(page, data) {
+  if (!page) return;
+  const stats = data?.ratingStats || EMPTY_RATING_STATS;
+  page.ratingStats = {
+    '-1': Number(stats['-1'] || 0),
+    '0': Number(stats['0'] || 0),
+    '1': Number(stats['1'] || 0),
+  };
+  page.ratingAverage = typeof data?.ratingAverage === 'number' ? data.ratingAverage : null;
+  page.ratingCount = Number(data?.ratingCount || 0);
+  page.ratingCsvAvailable = !!data?.ratingCsvAvailable || page.ratingCount > 0;
+  page._ratingsLoaded = true;
+}
+
+function clearPageRatingData(page) {
+  if (!page) return;
+  delete page.ratingStats;
+  delete page.ratingAverage;
+  delete page.ratingCount;
+  delete page.ratingCsvAvailable;
+  page._ratingsLoaded = false;
+}
+
+async function refreshCurrentPageRatings(force = false) {
+  const page = S.pages.find(p => p.id === S.currentPageId);
+  if (!page) return;
+  if (!S.authed) {
+    renderPage();
+    return;
+  }
+  if (force) page._ratingsLoaded = false;
+  await loadPageContent(page.id);
+  renderPage();
 }
 
 async function save() {
@@ -3888,6 +3991,9 @@ function renderPage() {
       <i class="fa-solid fa-book-open"></i>
       <p>${t('pageSelectPrompt')}</p>
     </div>`;
+    syncFeedbackPanelVisibility();
+    renderAdminRatingPanel(null);
+    syncFeedbackButtons();
     updateTOC(); updatePageNavBottom(null);
     return;
   }
@@ -3981,6 +4087,10 @@ function renderPage() {
     const coverUrl = page.cover?.type === 'image' ? page.cover.value : '';
     ogImage.content = coverUrl || generateOgImage(page.title, page.subtitle || '', siteName);
   }
+
+  syncFeedbackPanelVisibility();
+  renderAdminRatingPanel(page);
+  syncFeedbackButtons();
 
   // Reading time — update po načítaní editora
   setTimeout(() => updateReadingTime(), 800);
@@ -5936,8 +6046,134 @@ function showToast(msg) {
   t._timer = setTimeout(() => t.classList.remove('show'), 2600);
 }
 
-function react(r) {
-  showToast(t('toastFeedback') + r);
+function normalizeClientRatingValue(value) {
+  return FEEDBACK_VALUE_MAP[String(value ?? '').trim()] || '';
+}
+
+function formatRatingAverage(value) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return '–';
+  const locale = LANG_LOCALES[S.settings?.lang || DEFAULT_INTERFACE_LANG] || LANG_LOCALES[DEFAULT_INTERFACE_LANG];
+  const prefix = value > 0 ? '+' : '';
+  return prefix + value.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function renderAdminRatingPanel(page) {
+  const slot = document.getElementById('toc-admin-rating-slot');
+  if (!slot) return;
+  if (!S.authed || !page) {
+    slot.innerHTML = '';
+    return;
+  }
+
+  const stats = page.ratingStats || EMPTY_RATING_STATS;
+  const total = Number(page.ratingCount || 0);
+  const csvUrl = `api.php?action=download_ratings&id=${encodeURIComponent(page.id)}`;
+
+  slot.innerHTML = `
+    <div class="toc-sep"></div>
+    <div class="toc-admin-rating">
+      <div class="toc-feedback-label">${t('ratingStatsTitle')}</div>
+      <div class="toc-rating-avg-row">
+        <span class="toc-rating-avg-label">${t('ratingAverage')}</span>
+        <strong class="toc-rating-avg-value">${total > 0 ? formatRatingAverage(page.ratingAverage) : '–'}</strong>
+      </div>
+      <div class="toc-rating-count">${total > 0 ? `${total} ${t('ratingVotes')}` : t('ratingNoVotes')}</div>
+      <div class="toc-rating-pills">
+      <div class="toc-rating-pill" title="${t('ratingNegative')}"><span>👎</span><strong>${Number(stats['-1'] || 0)}</strong></div>
+      <div class="toc-rating-pill" title="${t('ratingNeutral')}"><span>😐</span><strong>${Number(stats['0'] || 0)}</strong></div>
+      <div class="toc-rating-pill" title="${t('ratingPositive')}"><span>👍</span><strong>${Number(stats['1'] || 0)}</strong></div>
+      </div>
+      ${page.ratingCsvAvailable ? `<a class="toc-download-btn" href="${csvUrl}" download><i class="fa-solid fa-download"></i><span>${t('ratingDownloadCsv')}</span></a>` : ''}
+    </div>
+  `;
+}
+
+function syncFeedbackPanelVisibility() {
+  const box = document.getElementById('toc-feedback-box');
+  if (!box) return;
+  box.style.display = S.authed ? 'none' : '';
+}
+
+function readFeedbackStore() {
+  try {
+    return JSON.parse(localStorage.getItem(FEEDBACK_STORAGE_KEY) || '{}') || {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function writeFeedbackStore(store) {
+  try {
+    localStorage.setItem(FEEDBACK_STORAGE_KEY, JSON.stringify(store));
+  } catch (e) {}
+}
+
+function getStoredFeedback(pageId) {
+  if (!pageId) return '';
+  return normalizeClientRatingValue(readFeedbackStore()[pageId] || '');
+}
+
+function rememberFeedback(pageId, rating) {
+  if (!pageId) return;
+  const store = readFeedbackStore();
+  store[pageId] = normalizeClientRatingValue(rating);
+  writeFeedbackStore(store);
+}
+
+function setFeedbackButtonsDisabled(disabled) {
+  document.querySelectorAll('.toc-feedback-btns .fb-btn').forEach(btn => {
+    btn.disabled = disabled;
+  });
+}
+
+function syncFeedbackButtons() {
+  const currentRating = getStoredFeedback(S.currentPageId);
+  document.querySelectorAll('.toc-feedback-btns .fb-btn').forEach(btn => {
+    btn.classList.toggle('active', !!currentRating && btn.dataset.rating === currentRating);
+  });
+}
+
+async function react(r, icon = '') {
+  const pageId = S.currentPageId;
+  const ratingValue = normalizeClientRatingValue(r);
+  const feedbackIcon = icon || FEEDBACK_ICON_BY_VALUE[ratingValue] || '';
+  if (!pageId || !ratingValue || feedbackSaving) return;
+
+  feedbackSaving = true;
+  setFeedbackButtonsDisabled(true);
+
+  try {
+    const res = await fetch('api.php?action=save_rating', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: pageId, rating: ratingValue })
+    });
+
+    let data = null;
+    try { data = await res.json(); } catch (e) {}
+    if (!res.ok || !data?.ok) throw new Error(data?.error || 'Failed to save feedback');
+
+    rememberFeedback(pageId, ratingValue);
+    const page = S.pages.find(p => p.id === pageId);
+    if (page && data) {
+      applyPageRatingData(page, {
+        ratingStats: data.ratingStats,
+        ratingAverage: data.ratingAverage,
+        ratingCount: data.ratingCount,
+        ratingCsvAvailable: true,
+      });
+      if (pageId === S.currentPageId) renderAdminRatingPanel(page);
+    }
+    syncFeedbackButtons();
+    showToast(t('toastFeedback') + feedbackIcon);
+  } catch (e) {
+    console.warn('Feedback save error:', e);
+    showToast(t('toastFeedbackError'));
+  } finally {
+    feedbackSaving = false;
+    setFeedbackButtonsDisabled(false);
+  }
 }
 
 // ════════════════════════════════════════
@@ -6117,6 +6353,7 @@ async function phpLogin(password) {
       updateAdminUI();
       closeAuth();
       renderSpaces();
+      await refreshCurrentPageRatings(true);
       showToast(t('btnLoggedIn') + ' ✓');
       return true;
     } else {
@@ -6134,9 +6371,10 @@ async function phpLogout() {
     await fetch('auth.php', { method: 'POST', credentials: 'same-origin', body: fd });
   } catch(e) {}
   S.authed = false;
-  if (S.editMode) { S.editMode = false; syncEditUI(); renderPage(); }
+  if (S.editMode) { S.editMode = false; syncEditUI(); }
   updateAdminUI();
   renderSpaces();
+  renderPage();
   showToast(t('btnLogout'));
 }
 
@@ -6164,6 +6402,7 @@ function updateAdminUI() {
   });
   // Translate availability depends on auth state + settings toggle
   applyTranslateAvailability();
+  syncFeedbackPanelVisibility();
   // Logo area: click goes to settings only if admin
   const logoArea = document.getElementById('logo-area-btn');
   if (logoArea) {
@@ -6355,6 +6594,7 @@ async function submitSetup() {
       document.getElementById('setup-overlay').classList.remove('open');
       updateAdminUI();
       renderSpaces();
+      await refreshCurrentPageRatings(true);
       showToast(t('btnLoggedIn') + ' ✓');
     } else {
       errEl.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ${d.error || t('setupError')}`;
