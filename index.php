@@ -2449,6 +2449,13 @@ body.reading-mode #reading-mode-btn { color: var(--accent) !important; }
           <option value="sk">🇸🇰 Slovenčina</option>
         </select>
       </div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-row-label" data-i18n="settingsTranslateToggle">Translate button</div>
+          <div class="settings-row-sub" data-i18n="settingsTranslateToggleSub">Show Google Translate button in header for readers</div>
+        </div>
+        <button class="toggle on" id="translate-toggle" onclick="toggleTranslateAvailability()"></button>
+      </div>
     </div>
 
     <div class="settings-section" id="settings-pin-section">
@@ -2644,6 +2651,8 @@ const TRANSLATIONS = {
     settingsPage: 'Page',
     settingsPassword: 'Password', settingsPasswordNote: 'Password is securely stored (bcrypt)',
     settingsLanguage: 'Interface language',
+    settingsTranslateToggle: 'Translate button',
+    settingsTranslateToggleSub: 'Show Google Translate button in header for readers',
     colorOrange: 'Orange', colorBlue: 'Blue', colorPurple: 'Purple',
     colorGreen: 'Green', colorPink: 'Pink', colorRed: 'Red', colorYellow: 'Yellow',
     // ── Auth ──
@@ -2805,6 +2814,8 @@ const TRANSLATIONS = {
     settingsPage: 'Seite',
     settingsPassword: 'Passwort', settingsPasswordNote: 'Das Passwort wird sicher gespeichert (bcrypt)',
     settingsLanguage: 'Oberflächensprache',
+    settingsTranslateToggle: 'Übersetzungsbutton',
+    settingsTranslateToggleSub: 'Google-Translate-Button im Header für Leser anzeigen',
     colorOrange: 'Orange', colorBlue: 'Blau', colorPurple: 'Lila',
     colorGreen: 'Grün', colorPink: 'Pink', colorRed: 'Rot', colorYellow: 'Gelb',
     authPassword: 'Passwort', authLogin: 'Anmelden', authWrong: 'Falsches Passwort',
@@ -2954,6 +2965,8 @@ const TRANSLATIONS = {
     settingsPage: 'Stránka',
     settingsPassword: 'Heslo', settingsPasswordNote: 'Heslo je bezpečne uložené (bcrypt)',
     settingsLanguage: 'Jazyk rozhrania',
+    settingsTranslateToggle: 'Tlačidlo prekladu',
+    settingsTranslateToggleSub: 'Zobraziť Google Translate tlačidlo v hlavičke pre čitateľov',
     colorOrange: 'Oranžová', colorBlue: 'Modrá', colorPurple: 'Fialová',
     colorGreen: 'Zelená', colorPink: 'Ružová', colorRed: 'Červená', colorYellow: 'Žltá',
     // ── Auth ──
@@ -3203,6 +3216,7 @@ let S = {
     faviconDataUrl: null,
     tabTitle: 'Docs',
     lang: DEFAULT_INTERFACE_LANG,
+    translateEnabled: true,
   }
 };
 
@@ -3412,8 +3426,18 @@ function applySettings() {
   const langSel = document.getElementById('lang-select');
   if (langSel && s.lang) langSel.value = s.lang;
 
+  // translate toggle sync
+  const translateToggle = document.getElementById('translate-toggle');
+  if (translateToggle) translateToggle.className = 'toggle ' + (isTranslateEnabled() ? 'on' : '');
+
+  applyTranslateAvailability();
+
   // apply translations to all data-i18n elements
   applyTranslations();
+}
+
+function isTranslateEnabled() {
+  return S.settings.translateEnabled !== false;
 }
 
 function setLang(lang) {
@@ -3427,6 +3451,12 @@ function setLang(lang) {
   renderPage();
   syncEditUI();
   updateAdminUI();
+}
+
+function toggleTranslateAvailability() {
+  S.settings.translateEnabled = !isTranslateEnabled();
+  saveSettingsDebounced();
+  applySettings();
 }
 
 // Maps interface lang code → {flag, name} for the GT "original" dropdown item
@@ -3447,6 +3477,38 @@ function updateTranslateOrigin() {
     if (item.id === 'translate-origin-item') return;
     item.style.display = item.dataset.lang === lang ? 'none' : '';
   });
+}
+
+function resetTranslateState() {
+  const srcLang = S.settings.lang || DEFAULT_INTERFACE_LANG;
+  if (typeof doGTranslate === 'function') {
+    doGTranslate(`${srcLang}|${srcLang}`);
+  }
+  const combo = document.querySelector('.goog-te-combo');
+  if (combo) {
+    combo.value = srcLang;
+    combo.dispatchEvent(new Event('change'));
+  }
+  document.querySelectorAll('iframe.skiptranslate, .goog-te-banner-frame, #goog-gt-tt').forEach(el => el.remove());
+  document.cookie = 'googtrans=; max-age=0; path=/';
+  document.cookie = `googtrans=; max-age=0; path=/; domain=${location.hostname}`;
+  document.cookie = `googtrans=; max-age=0; path=/; domain=.${location.hostname}`;
+  document.getElementById('gt-script')?.remove();
+  document.body.style.top = '';
+}
+
+function applyTranslateAvailability() {
+  const wrap = document.getElementById('translate-wrap');
+  const showTranslate = !S.authed && isTranslateEnabled();
+  if (wrap) wrap.style.display = showTranslate ? '' : 'none';
+
+  if (!showTranslate) {
+    document.getElementById('translate-dd')?.classList.remove('open');
+    resetTranslateState();
+    return;
+  }
+
+  loadTranslateWidget();
 }
 
 let _settingsSaveTimer = null;
@@ -6100,26 +6162,8 @@ function updateAdminUI() {
   document.querySelectorAll('.admin-only').forEach(el => {
     el.style.display = S.authed ? (el.classList.contains('nav-divider') ? 'block' : '') : 'none';
   });
-  // Translate — načítaj len pre neprihlásených, zruš pre admina
-  const translateWrap = document.getElementById('translate-wrap');
-  if (translateWrap) translateWrap.style.display = S.authed ? 'none' : '';
-  if (S.authed) {
-    // Reset prekladu späť na originál
-    if (typeof doGTranslate === 'function') { const sl = S.settings.lang || DEFAULT_INTERFACE_LANG; doGTranslate(sl+'|'+sl); }
-    // Odstráň Google Translate iframe a toolbar z DOM
-    document.querySelectorAll('iframe.skiptranslate, .goog-te-banner-frame, #goog-gt-tt').forEach(el => el.remove());
-    // Vymaž googtrans cookie
-    document.cookie = 'googtrans=; max-age=0; path=/';
-    document.cookie = `googtrans=; max-age=0; path=/; domain=${location.hostname}`;
-    document.cookie = `googtrans=; max-age=0; path=/; domain=.${location.hostname}`;
-    // Odstráň Google script
-    document.getElementById('gt-script')?.remove();
-    // Odstráň body top offset ktorý Google nastavuje
-    document.body.style.top = '';
-  } else {
-    // Načítaj widget ak ešte nie je
-    loadTranslateWidget();
-  }
+  // Translate availability depends on auth state + settings toggle
+  applyTranslateAvailability();
   // Logo area: click goes to settings only if admin
   const logoArea = document.getElementById('logo-area-btn');
   if (logoArea) {
@@ -6378,6 +6422,7 @@ function translateTo(lang) {
 }
 
 function toggleTranslate() {
+  if (S.authed || !isTranslateEnabled()) return;
   document.getElementById('translate-dd').classList.toggle('open');
 }
 
