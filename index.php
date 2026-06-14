@@ -2270,12 +2270,12 @@ body.reading-mode #reading-mode-btn { color: var(--accent) !important; }
 <div class="shortcuts-overlay" id="shortcuts-overlay" onclick="closeShortcuts()">
   <div class="shortcuts-panel" onclick="event.stopPropagation()">
     <h3><i class="fa-solid fa-keyboard" style="margin-right:8px;color:var(--accent)"></i><span data-i18n="shortcutShortcuts">Shortcuts</span></h3>
-    <div class="shortcut-row"><span class="shortcut-label" data-i18n="shortcutEdit">Edit / Preview</span><span class="shortcut-keys"><kbd>⌘</kbd><kbd>E</kbd></span></div>
-    <div class="shortcut-row"><span class="shortcut-label" data-i18n="shortcutSave">Save</span><span class="shortcut-keys"><kbd>⌘</kbd><kbd>S</kbd></span></div>
-    <div class="shortcut-row"><span class="shortcut-label" data-i18n="shortcutUndo">Undo</span><span class="shortcut-keys"><kbd>⌘</kbd><kbd>Z</kbd></span></div>
-    <div class="shortcut-row"><span class="shortcut-label" data-i18n="shortcutRedo">Redo</span><span class="shortcut-keys"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>Z</kbd></span></div>
+    <div class="shortcut-row admin-only" style="display:none"><span class="shortcut-label" data-i18n="shortcutEdit">Edit / Preview</span><span class="shortcut-keys"><kbd>⌘</kbd><kbd>E</kbd></span></div>
+    <div class="shortcut-row admin-only" style="display:none"><span class="shortcut-label" data-i18n="shortcutSave">Save</span><span class="shortcut-keys"><kbd>⌘</kbd><kbd>S</kbd></span></div>
+    <div class="shortcut-row admin-only" style="display:none"><span class="shortcut-label" data-i18n="shortcutUndo">Undo</span><span class="shortcut-keys"><kbd>⌘</kbd><kbd>Z</kbd></span></div>
+    <div class="shortcut-row admin-only" style="display:none"><span class="shortcut-label" data-i18n="shortcutRedo">Redo</span><span class="shortcut-keys"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>Z</kbd></span></div>
     <div class="shortcut-row"><span class="shortcut-label" data-i18n="shortcutSearch">Search</span><span class="shortcut-keys"><kbd>⌘</kbd><kbd>K</kbd></span></div>
-    <div class="shortcut-row"><span class="shortcut-label">Slash menu</span><span class="shortcut-keys"><kbd>⌘</kbd><kbd>/</kbd></span></div>
+    <div class="shortcut-row admin-only" style="display:none"><span class="shortcut-label">Slash menu</span><span class="shortcut-keys"><kbd>⌘</kbd><kbd>/</kbd></span></div>
     <div class="shortcut-row"><span class="shortcut-label" data-i18n="shortcutReadingMode">Reading mode</span><span class="shortcut-keys"><kbd>⌘</kbd><kbd>R</kbd></span></div>
     <div class="shortcut-row" id="shortcut-share-row"><span class="shortcut-label" data-i18n="shortcutShare">Share page</span><span class="shortcut-keys"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>C</kbd></span></div>
     <div class="shortcut-row"><span class="shortcut-label" data-i18n="shortcutPrevNext">Previous / Next page</span><span class="shortcut-keys"><kbd>←</kbd><kbd>→</kbd></span></div>
@@ -3897,8 +3897,8 @@ function renderNav() {
   const rootPages = pages.filter(p => !p.parentId).sort((a,b) => a.order - b.order);
 
   // Group by section
-  const sections = [];
   const seen = new Set();
+  const sections = [];
   rootPages.forEach(p => {
     const sec = p.section || '';
     if (!seen.has(sec)) { seen.add(sec); sections.push(sec); }
@@ -3908,8 +3908,7 @@ function renderNav() {
     if (sec) {
       const label = document.createElement('div');
       label.className = 'section-label';
-      const addBtn = isAdmin ? `<button class="section-add" onclick="event.stopPropagation();openAddPage(null,'${esc(sec)}')" title="${t('btnAddPageSection')}"><i class="fa-solid fa-plus"></i></button>` : '';
-      label.innerHTML = `${esc(sec)}${addBtn}`;
+      label.textContent = sec;
       tree.appendChild(label);
     }
     rootPages.filter(p => (p.section || '') === sec).forEach(p => {
@@ -5484,6 +5483,7 @@ document.addEventListener('mousedown', (e) => {
 //  EDIT MODE
 // ════════════════════════════════════════
 async function toggleEdit() {
+  if (!canUseAdminPageShortcuts()) return;
   // Ak ideme z edit → read, najprv ulož
   if (S.editMode) { await autoSave(true); hideSaveBar(); }
 
@@ -5618,7 +5618,7 @@ function scheduleUndoSnapshot() {
 }
 
 async function editorUndo() {
-  if (!editor || !S.editMode || undoStack.length < 2) return;
+  if (!S.authed || !editor || !S.editMode || undoStack.length < 2) return;
   _undoRedoInProgress = true;
   try {
     // Current state is top of undo stack, move it to redo
@@ -5635,7 +5635,7 @@ async function editorUndo() {
 }
 
 async function editorRedo() {
-  if (!editor || !S.editMode || redoStack.length < 1) return;
+  if (!S.authed || !editor || !S.editMode || redoStack.length < 1) return;
   _undoRedoInProgress = true;
   try {
     const snapshot = redoStack.pop();
@@ -5686,7 +5686,7 @@ async function discardChanges() {
 }
 
 async function autoSave(silent = false) {
-  if (!S.editMode || !editor) return;
+  if (!S.authed || !S.editMode || !editor) return;
   const page = S.pages.find(p => p.id === S.currentPageId);
   if (!page) return;
   try {
@@ -5706,6 +5706,7 @@ async function autoSave(silent = false) {
 }
 
 async function savePage() {
+  if (!S.authed || !S.editMode) return;
   const bar = document.getElementById('save-bar');
   const dot = bar?.querySelector('.save-bar-dot');
   const text = bar?.querySelector('.save-bar-text');
@@ -6288,23 +6289,47 @@ function esc(str) {
   return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function canUseAdminPageShortcuts() {
+  return !!S.authed && !!S.currentPageId;
+}
+
+function canUseEditorShortcuts() {
+  return canUseAdminPageShortcuts() && S.editMode;
+}
+
 // Keyboard shortcuts
 document.addEventListener('keydown', e => {
-  if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+  const meta = e.metaKey || e.ctrlKey;
+  const key = e.key.toLowerCase();
+
+  if (meta && key === 's' && canUseEditorShortcuts()) {
     e.preventDefault();
-    if (S.editMode) savePage();
+    savePage();
   }
-  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
-    if (S.editMode) { e.preventDefault(); editorUndo(); }
+  if (meta && !e.shiftKey && key === 'z' && canUseEditorShortcuts()) {
+    e.preventDefault();
+    editorUndo();
   }
-  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
-    if (S.editMode) { e.preventDefault(); editorRedo(); }
+  if (meta && e.shiftKey && key === 'z' && canUseEditorShortcuts()) {
+    e.preventDefault();
+    editorRedo();
   }
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
-    if (S.editMode) { e.preventDefault(); editorRedo(); }
+  if (meta && key === 'y' && canUseEditorShortcuts()) {
+    e.preventDefault();
+    editorRedo();
   }
-  if ((e.metaKey || e.ctrlKey) && e.key === 'e') { e.preventDefault(); toggleEdit(); }
-  if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); document.getElementById('search-input').focus(); }
+  if (meta && key === 'e' && canUseAdminPageShortcuts()) {
+    e.preventDefault();
+    toggleEdit();
+  }
+  if (meta && key === 'k') {
+    e.preventDefault();
+    const searchInput = document.getElementById('search-input');
+    if (searchInput) {
+      searchInput.focus();
+      searchInput.select();
+    }
+  }
   if (e.key === 'Escape') {
     closeModal('add-modal');
     closeSettings();
@@ -6847,35 +6872,6 @@ function initDragDrop() {
     });
   });
 }
-
-// ════════════════════════════════════════
-//  KEYBOARD SHORTCUTS
-// ════════════════════════════════════════
-document.addEventListener('keydown', async (e) => {
-  const meta = e.metaKey || e.ctrlKey;
-  if (!meta) return;
-
-  // Cmd+E — toggle edit/preview
-  if (e.key === 'e' && S.authed && S.currentPageId) {
-    e.preventDefault();
-    toggleEdit();
-    return;
-  }
-  // Cmd+S — save
-  if (e.key === 's' && S.editMode) {
-    e.preventDefault();
-    await autoSave(false);
-    showToast(t('toastSaved'));
-    return;
-  }
-  // Cmd+K — focus search
-  if (e.key === 'k') {
-    e.preventDefault();
-    const si = document.getElementById('search-input');
-    if (si) { si.focus(); si.select(); }
-    return;
-  }
-});
 
 // ════════════════════════════════════════
 //  SLASH COMMAND MENU
@@ -7447,14 +7443,12 @@ document.addEventListener('keydown', e => {
   }
 
   // Cmd+/ = slash menu anywhere in editor
-  if (meta && e.key === '/') {
+  if (meta && e.key === '/' && canUseEditorShortcuts()) {
     e.preventDefault();
-    if (S.editMode && editor) {
-      const toolbar = document.querySelector('.ce-toolbar__plus');
-      if (toolbar) {
-        const rect = toolbar.getBoundingClientRect();
-        openSlashMenu(rect.left, rect.bottom, '');
-      }
+    const toolbar = document.querySelector('.ce-toolbar__plus');
+    if (toolbar) {
+      const rect = toolbar.getBoundingClientRect();
+      openSlashMenu(rect.left, rect.bottom, '');
     }
   }
 
