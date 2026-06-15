@@ -1,3 +1,20 @@
+## 🔄 Changes from the original version
+
+This repository is a customized fork of the original Webstudio Docs release.
+The main changes are:
+
+- **Split public viewer and admin editor** — `index.php` is now the read-only public frontend, while `editor.php` contains the authenticated editing UI.
+- **Shared frontend assets** — styles and translations were moved into `assets/app.css` and `assets/i18n.js` so both entry points stay in sync.
+- **German language support** — the interface now includes built-in German translations with centralized language configuration.
+- **Optional Google Translate button** — the translate button is now optional and can be disabled in settings.
+- **Saved page feedback** — page helpfulness feedback is now persisted through the API.
+- **Configurable share section visibility** — the share block in the page sidebar can be shown or hidden from settings.
+- **Role-aware shortcuts** — admin-only keyboard shortcuts are hidden or blocked for non-admin users.
+- **HTML-capable footer content** — footer areas now support full HTML content instead of plain text only.
+- **Header slash menu fix** — the header slash menu behavior was corrected in the customized frontend.
+
+---
+
 <p align="center">
   <img src="http://docs.web-studio.sk/screenshots/hero.jpg" alt="Webstudio Docs" width="100%">
 </p>
@@ -8,11 +25,12 @@
 
 <p align="center">
   <strong>Open-source, self-hosted documentation platform.</strong><br>
-  A free GitBook alternative — 4 files, no database, no build process.<br>
+  A free GitBook alternative — plain PHP, no database, no build process.<br>
   Upload to any PHP hosting and start writing.
 </p>
 
 <p align="center">
+  <a href="#-changes-from-the-original-version">Changes in This Fork</a> •
   <a href="#-quick-start">Quick Start</a> •
   <a href="#-features">Features</a> •
   <a href="#-screenshots">Screenshots</a> •
@@ -35,7 +53,7 @@ We're a web agency that got tired of paying $65/month per site for GitBook. So w
 
 **The result:**
 
-- **4 files** — `index.php`, `api.php`, `auth.php`, `.htaccess`. That's the entire platform.
+- **Still lightweight** — plain PHP, JSON storage, and a simple file-based structure without framework overhead.
 - **No database** — everything is stored as JSON files on your server.
 - **No build process** — no npm, no webpack, no config files. Upload and done.
 - **Self-hosted** — your server, your data, your domain. No vendor lock-in.
@@ -58,13 +76,13 @@ Try it yourself: **[docs.web-studio.sk](https://docs.web-studio.sk)** — passwo
 # 1. Clone
 git clone https://github.com/webstudio-ltd/docs.git
 
-# 2. Upload to your PHP server
-#    index.php + api.php + auth.php + .htaccess
+# 2. Upload the project files to your PHP server
+#    keep the folder structure intact (`assets/`, `data/`, `images/`)
 
 # 3. Open in browser → set your admin password → start writing
 ```
 
-No `npm install`. No environment variables. No database migrations. No Docker. Just upload four files and you have a documentation site.
+No `npm install`. No environment variables. No database migrations. No Docker. Just upload the project and you have a documentation site.
 
 ---
 
@@ -167,27 +185,33 @@ We're building a **Premium version** with advanced features for teams and busine
 
 ```
 your-docs-site/
-├── index.php      ← Main application (frontend + OG tag generation)
+├── index.php      ← Public viewer (read-only frontend + OG tag generation)
+├── editor.php     ← Admin editor UI
 ├── api.php        ← Backend API (pages, spaces, images, settings)
 ├── auth.php       ← Authentication (setup wizard, login, sessions)
 ├── .htaccess      ← Security (blocks /data/ from direct access)
-├── data/          ← Auto-created on first run
+├── assets/
+│   ├── app.css    ← Shared styles for viewer + editor
+│   └── i18n.js    ← Shared translations, icons, language config
+├── data/
+│   ├── index.php      ← Directory protection helper
 │   ├── auth.json      ← Hashed password (bcrypt)
 │   ├── settings.json  ← Site configuration
 │   ├── spaces.json    ← Space definitions
 │   └── pages/         ← One JSON file per page
-└── images/        ← Auto-created
+└── images/
     └── og/            ← Auto-generated social sharing images
 ```
 
 ### Adding a Language
 
-1. Open `index.php`, find the `TRANSLATIONS` object
+1. Open `assets/i18n.js`
 2. Copy the entire `en: { ... }` block
 3. Rename to your language code (e.g. `de`, `fr`, `es`)
 4. Translate the values
-5. Add the option to the language `<select>` in the settings HTML
-6. Submit a PR — we'd love to include it!
+5. Add the matching locale mapping in `LANG_LOCALES`
+6. Select it in Settings → Interface language and test both `index.php` and `editor.php`
+7. Submit a PR — we'd love to include it!
 
 ### Nginx Users
 
@@ -219,7 +243,7 @@ This project exists because of the community. Contributions welcome:
 | Self-hosted | ✗ | ✗ | **✓** |
 | Custom domain | ✗ | ✓ | **✓ (your server)** |
 | Per-user fees | 1 user only | $12/user/month | **No per-user pricing** |
-| Setup time | Account signup | Account + payment | **Upload 4 files** |
+| Setup time | Account signup | Account + payment | **Upload project files** |
 | Database | Cloud only | Cloud only | **None needed** |
 | Data ownership | Theirs | Theirs | **100% yours** |
 | Block editor | ✓ | ✓ | **✓ (14 block types)** |
