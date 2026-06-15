@@ -1,13 +1,15 @@
 ---
-description: "Use when editing index.php, frontend UI, vanilla JavaScript client state, translations, editor behavior, navigation, search, or OG/meta rendering in Webstudio Docs."
-name: "Index Frontend Guidelines"
-applyTo: "index.php"
+description: "Use when editing the front-end UI, vanilla JavaScript client state, translations, editor behavior, navigation, search, or OG/meta rendering in Webstudio Docs (index.php viewer and editor.php editor)."
+name: "Front-end Guidelines"
+applyTo: "index.php,editor.php,assets/*.js,assets/*.css"
 ---
 
-# Index Frontend Guidelines
+# Front-end Guidelines
 
-- [../../index.php](../../index.php) is a single-file application: PHP prepares OG/meta output first, then a large vanilla-JS client takes over. Keep changes local and incremental.
-- Prefer working in the nearest owning section instead of introducing new layers or splitting the file unless the task explicitly requires restructuring.
+- The front end is split: [../../index.php](../../index.php) is the public read-only viewer (no EditorJS) and [../../editor.php](../../editor.php) is the full editor. Both link the shared [../../assets/app.css](../../assets/app.css) and [../../assets/i18n.js](../../assets/i18n.js) (constants/translations) instead of inlining them.
+- Each file bootstraps OG/meta output first in PHP, then runs a vanilla-JS client. Keep changes local and incremental.
+- The viewer must NOT depend on EditorJS. It renders saved page content via a custom `renderBlocks()` that mirrors EditorJS DOM/classes so `assets/app.css` styles it. Keep editor-only features (login, save, settings, slash menu, drag & drop) out of `index.php`.
+- Prefer working in the nearest owning section instead of introducing new layers or splitting files further unless the task explicitly requires restructuring.
 - Client state lives in the global `S` object. When changing UI behavior, check whether the source of truth belongs in `S`, derived rendering, or persisted page/settings data.
 - Preserve the lazy-loading contract: initial load fetches spaces, settings, and page metadata; full page content loads separately via `loadPageContent(pageId)`.
 - New user-facing labels, placeholders, button text, and inline messages should go through `TRANSLATIONS`, `t()`, and `applyTranslations()` rather than hardcoded strings.
@@ -19,6 +21,7 @@ applyTo: "index.php"
 
 ## Quick validation
 
-- Run `php -l index.php` after edits.
+- Run `php -l index.php` and `php -l editor.php` after edits; run `node --check assets/i18n.js` if you touched it.
 - If behavior changed, manually verify the affected flow in a browser: page load, navigation, edit/save, search, translation-aware labels, or OG preview behavior.
+- If you change shared rendering/styling/translations, check that both the viewer and editor still render correctly.
 - If you add or rename translation keys, confirm both the default English path and any existing fallback behavior still render sensible text.
