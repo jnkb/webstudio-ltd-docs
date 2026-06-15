@@ -306,11 +306,9 @@ $_ogData = (function() {
       <i class="fa-solid fa-plus"></i> <span data-i18n="modalAddTitle">New page</span>
     </button>
     <div class="sidebar-footer" id="sidebar-footer">
-      <i class="fa-solid fa-bolt"></i>
-      <span id="footer-text-display">Powered by Docs</span>
-      <a href="https://webstudio.ltd" target="_blank" rel="noopener"
-         style="margin-left:auto;opacity:.4;font-size:10px;color:inherit;text-decoration:none;white-space:nowrap;flex-shrink:0;"
-         title="Built by webstudio.ltd">webstudio.ltd</a>
+      <i class="fa-solid fa-bolt" id="footer-icon"></i>
+      <span id="footer-text-display"></span>
+      <span id="footer-tail-display" class="footer-tail-display"></span>
     </div>
   </aside>
 
@@ -575,7 +573,14 @@ $_ogData = (function() {
         <div style="flex:1">
           <div class="settings-row-label" data-i18n="settingsFooterText">Footer text</div>
           <div class="settings-row-sub" data-i18n="settingsFooterSub">Shown in sidebar</div>
-          <input class="field-input" type="text" id="footer-input" placeholder="Powered by Docs" oninput="updateFooter(this.value)" style="margin-top:8px;width:100%">
+          <input class="field-input" type="text" id="footer-input" data-i18n-ph="settingsFooterTextPh" placeholder="Powered by <a href='https://example.com'>Docs</a>" oninput="updateFooter(this.value)" style="margin-top:8px;width:100%">
+        </div>
+      </div>
+      <div class="settings-row">
+        <div style="flex:1">
+          <div class="settings-row-label" data-i18n="settingsFooterTail">Footer secondary content</div>
+          <div class="settings-row-sub" data-i18n="settingsFooterTailSub">Shown on the right side</div>
+          <input class="field-input" type="text" id="footer-tail-input" data-i18n-ph="settingsFooterTailPh" placeholder="<a href='https://webstudio.ltd'>webstudio.ltd</a>" oninput="updateFooterTail(this.value)" style="margin-top:8px;width:100%">
         </div>
       </div>
     </div>
@@ -730,6 +735,8 @@ function applyTranslations() {
 
 
 const DEFAULT_ACCENT = '#f97316';
+const DEFAULT_FOOTER_TEXT_HTML = 'Powered by Docs';
+const DEFAULT_FOOTER_TAIL_HTML = '<a href="https://webstudio.ltd" target="_blank" rel="noopener" title="Built by webstudio.ltd">webstudio.ltd</a>';
 const ACCENT_COLORS = ['#f97316','#3b82f6','#8b5cf6','#10b981','#ec4899','#ef4444','#eab308'];
 
 function getPageTemplates() { return [
@@ -818,7 +825,8 @@ let S = {
     siteName: 'My Docs',
     accentColor: DEFAULT_ACCENT,
     theme: 'dark',
-    footerText: 'Powered by Docs',
+    footerText: DEFAULT_FOOTER_TEXT_HTML,
+    footerTailHtml: DEFAULT_FOOTER_TAIL_HTML,
     logoDataUrl: null,
     faviconDataUrl: null,
     tabTitle: 'Docs',
@@ -1042,7 +1050,7 @@ function applySettings() {
     logoEl.innerHTML = `<img src="${s.logoDataUrl}" alt="logo">`;
     if (logoPreviewArea) logoPreviewArea.innerHTML = `
       <img src="${s.logoDataUrl}" style="max-height:30px;max-width:80px;border-radius:4px">
-      <button class="btn btn-ghost" style="font-size:11px;padding:2px 8px;color:#ef4444;border:1px solid rgba(239,68,68,.3)" onclick="event.stopPropagation();S.settings.logoDataUrl='';saveSettingsDebounced();applySettings();"><i class="fa-solid fa-trash"></i> ${t('settingsLogoRemove')}</button>`;
+      <button class="btn btn-ghost" style="font-size:11px;padding:2px 8px;color:#ef4444;border:1px solid rgba(239,68,68,.3)" onclick="event.stopPropagation();removeLogo();"><i class="fa-solid fa-trash"></i> ${t('settingsLogoRemove')}</button>`;
   } else {
     logoEl.innerHTML = `<i class="fa-solid fa-book-open"></i>`;
     if (logoPreviewArea) logoPreviewArea.innerHTML = `<i class="fa-solid fa-cloud-arrow-up" style="font-size:18px;color:var(--text4)"></i><span>${t('settingsLogoUpload')}</span>`;
@@ -1055,19 +1063,20 @@ function applySettings() {
     if (faviconLink) { faviconLink.href = s.faviconDataUrl; faviconLink.type = ''; }
     if (faviconPreview) faviconPreview.innerHTML = `
       <img src="${s.faviconDataUrl}" style="width:20px;height:20px;border-radius:3px;object-fit:contain">
-      <button class="btn btn-ghost" style="font-size:11px;padding:2px 8px;color:#ef4444;border:1px solid rgba(239,68,68,.3)" onclick="event.stopPropagation();S.settings.faviconDataUrl='';saveSettingsDebounced();applySettings();"><i class="fa-solid fa-trash"></i> ${t('settingsFaviconRemove')}</button>`;
+      <button class="btn btn-ghost" style="font-size:11px;padding:2px 8px;color:#ef4444;border:1px solid rgba(239,68,68,.3)" onclick="event.stopPropagation();removeFavicon();"><i class="fa-solid fa-trash"></i> ${t('settingsFaviconRemove')}</button>`;
   } else {
     if (faviconLink) faviconLink.href = 'data:,';
     if (faviconPreview) faviconPreview.innerHTML = `<i class="fa-solid fa-image" style="font-size:14px;color:var(--text4)"></i><span>${t('settingsFaviconUpload')}</span>`;
   }
 
   document.getElementById('logo-name-display').textContent = s.siteName || 'My Docs';
-  document.getElementById('footer-text-display').textContent = s.footerText || 'Powered by Docs';
+  applyFooterDisplay();
   document.title = s.tabTitle || 'Docs';
 
   // sync inputs
   document.getElementById('site-name-input').value = s.siteName || '';
-  document.getElementById('footer-input').value = s.footerText || '';
+  document.getElementById('footer-input').value = s.footerText ?? '';
+  document.getElementById('footer-tail-input').value = s.footerTailHtml ?? '';
   document.getElementById('tab-title-input').value = s.tabTitle || '';
 
   // color swatches
@@ -1193,6 +1202,15 @@ function saveSettingsDebounced() {
   _settingsSaveTimer = setTimeout(() => save(), 800);
 }
 
+async function saveSettingsNow() {
+  clearTimeout(_settingsSaveTimer);
+  try {
+    await save();
+  } catch (e) {
+    console.warn('Save settings error:', e);
+  }
+}
+
 function toggleTheme() {
   S.settings.theme = S.settings.theme === 'dark' ? 'light' : 'dark';
   saveSettingsDebounced(); applySettings();
@@ -1215,7 +1233,13 @@ function updateSiteName(v) {
 
 function updateFooter(v) {
   S.settings.footerText = v;
-  document.getElementById('footer-text-display').textContent = v || '';
+  applyFooterDisplay();
+  saveSettingsDebounced();
+}
+
+function updateFooterTail(v) {
+  S.settings.footerTailHtml = v;
+  applyFooterDisplay();
   saveSettingsDebounced();
 }
 
@@ -1229,11 +1253,12 @@ function handleLogoUpload(input) {
   const file = input.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = e => {
+  reader.onload = async e => {
     S.settings.logoDataUrl = e.target.result;
     const area = document.getElementById('logo-preview-area');
     area.innerHTML = `<img src="${e.target.result}" class="logo-preview" style="max-height:30px;max-width:80px;border-radius:4px">`;
-    saveSettingsDebounced(); applySettings();
+    applySettings();
+    await saveSettingsNow();
   };
   reader.readAsDataURL(file);
 }
@@ -1244,11 +1269,24 @@ function handleFaviconUpload(input) {
   // Max 256KB for favicon
   if (file.size > 256 * 1024) { showToast('Favicon too large (max 256 KB)'); return; }
   const reader = new FileReader();
-  reader.onload = e => {
+  reader.onload = async e => {
     S.settings.faviconDataUrl = e.target.result;
-    saveSettingsDebounced(); applySettings();
+    applySettings();
+    await saveSettingsNow();
   };
   reader.readAsDataURL(file);
+}
+
+function removeLogo() {
+  S.settings.logoDataUrl = '';
+  applySettings();
+  saveSettingsNow();
+}
+
+function removeFavicon() {
+  S.settings.faviconDataUrl = '';
+  applySettings();
+  saveSettingsNow();
 }
 
 function openSettings() {
@@ -1678,7 +1716,7 @@ function updateReadingTime() {
 }
 
 // ── Cover ──
-function addCover() {
+async function addCover() {
   const page = S.pages.find(p => p.id === S.currentPageId);
   if (!page) return;
   const colors = ['linear-gradient(135deg,#f97316,#7c3aed)','linear-gradient(135deg,#3b82f6,#06b6d4)',
@@ -1686,7 +1724,7 @@ function addCover() {
     'linear-gradient(135deg,#6366f1,#ec4899)','linear-gradient(135deg,#eab308,#ef4444)'];
   const pick = colors[Math.floor(Math.random() * colors.length)];
   page.cover = { type: 'color', value: pick };
-  savePageToServer(page);
+  await savePageToServer(page);
   renderPage();
   syncEditUI();
 }
@@ -1704,23 +1742,23 @@ function changeCover() {
       const d = await r.json();
       if (d.url) {
         const page = S.pages.find(p => p.id === S.currentPageId);
-        if (page) { page.cover = { type:'image', value:d.url }; savePageToServer(page); renderPage(); }
+        if (page) { page.cover = { type:'image', value:d.url }; await savePageToServer(page); renderPage(); }
       }
     } catch(e) { showToast(t('toastUploadError')); }
   };
   input.click();
 }
 
-function removeCover() {
+async function removeCover() {
   const page = S.pages.find(p => p.id === S.currentPageId);
-  if (page) { page.cover = null; savePageToServer(page); renderPage(); }
+  if (page) { page.cover = null; await savePageToServer(page); renderPage(); }
 }
 
-function setCoverFit(fit) {
+async function setCoverFit(fit) {
   const page = S.pages.find(p => p.id === S.currentPageId);
   if (!page?.cover) return;
   page.cover.fit = fit;
-  savePageToServer(page);
+  await savePageToServer(page);
   const img = document.querySelector('#page-cover-el img');
   if (img) img.style.objectFit = fit;
   document.querySelectorAll('.cover-pos-btn').forEach(b => {
@@ -3821,6 +3859,74 @@ function generateOgImage(title, subtitle, siteName) {
 
 function esc(str) {
   return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function sanitizeFooterHtml(input) {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = String(input ?? '');
+  const allowedTags = new Set(['A', 'B', 'STRONG', 'I', 'EM', 'U', 'SPAN', 'SMALL', 'CODE', 'BR']);
+  const allowedGlobalAttrs = new Set(['title']);
+
+  const sanitizeTree = (root) => {
+    Array.from(root.children).forEach((el) => {
+      sanitizeTree(el);
+      if (!allowedTags.has(el.tagName)) {
+        el.replaceWith(...Array.from(el.childNodes));
+        return;
+      }
+
+      Array.from(el.attributes).forEach((attr) => {
+        const name = attr.name.toLowerCase();
+        const value = attr.value || '';
+        if (el.tagName === 'A') {
+          const allowedLinkAttr = name === 'href' || name === 'target' || name === 'rel' || allowedGlobalAttrs.has(name);
+          if (!allowedLinkAttr) {
+            el.removeAttribute(attr.name);
+            return;
+          }
+          if (name === 'href' && /^\s*(javascript|data):/i.test(value)) {
+            el.removeAttribute(attr.name);
+          }
+          return;
+        }
+
+        if (!allowedGlobalAttrs.has(name)) {
+          el.removeAttribute(attr.name);
+        }
+      });
+
+      if (el.tagName === 'A') {
+        el.setAttribute('rel', 'noopener');
+        if (!el.getAttribute('target')) el.setAttribute('target', '_blank');
+      }
+    });
+  };
+
+  sanitizeTree(tpl.content);
+  return tpl.innerHTML;
+}
+
+function footerHasText(html) {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html || '';
+  return (tmp.textContent || '').trim().length > 0;
+}
+
+function applyFooterDisplay() {
+  const s = S.settings || {};
+  const textHtml = sanitizeFooterHtml(s.footerText ?? DEFAULT_FOOTER_TEXT_HTML);
+  const tailHtml = sanitizeFooterHtml(s.footerTailHtml ?? DEFAULT_FOOTER_TAIL_HTML);
+
+  const iconEl = document.getElementById('footer-icon');
+  const textEl = document.getElementById('footer-text-display');
+  const tailEl = document.getElementById('footer-tail-display');
+
+  if (textEl) textEl.innerHTML = textHtml;
+  if (tailEl) {
+    tailEl.innerHTML = tailHtml;
+    tailEl.style.display = footerHasText(tailHtml) ? '' : 'none';
+  }
+  if (iconEl) iconEl.style.display = footerHasText(textHtml) ? '' : 'none';
 }
 
 function canUseAdminPageShortcuts() {

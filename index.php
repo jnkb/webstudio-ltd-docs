@@ -271,11 +271,9 @@ $_ogData = (function() {
     <div class="sidebar-body" id="nav-tree"></div>
 
     <div class="sidebar-footer" id="sidebar-footer">
-      <i class="fa-solid fa-bolt"></i>
-      <span id="footer-text-display">Powered by Docs</span>
-      <a href="https://webstudio.ltd" target="_blank" rel="noopener"
-         style="margin-left:auto;opacity:.4;font-size:10px;color:inherit;text-decoration:none;white-space:nowrap;flex-shrink:0;"
-         title="Built by webstudio.ltd">webstudio.ltd</a>
+      <i class="fa-solid fa-bolt" id="footer-icon"></i>
+      <span id="footer-text-display"></span>
+      <span id="footer-tail-display" class="footer-tail-display"></span>
     </div>
   </aside>
 
@@ -391,6 +389,8 @@ function applyTranslations() {
 }
 
 const DEFAULT_ACCENT = '#f97316';
+const DEFAULT_FOOTER_TEXT_HTML = 'Powered by Docs';
+const DEFAULT_FOOTER_TAIL_HTML = '<a href="https://webstudio.ltd" target="_blank" rel="noopener" title="Built by webstudio.ltd">webstudio.ltd</a>';
 const LANG_META = {
   de: { flag: '🇩🇪', name: 'Deutsch' },
   en: { flag: '🇬🇧', name: 'English' },
@@ -410,7 +410,8 @@ let S = {
     siteName: 'My Docs',
     accentColor: DEFAULT_ACCENT,
     theme: 'dark',
-    footerText: 'Powered by Docs',
+    footerText: DEFAULT_FOOTER_TEXT_HTML,
+    footerTailHtml: DEFAULT_FOOTER_TAIL_HTML,
     logoDataUrl: null,
     faviconDataUrl: null,
     tabTitle: 'Docs',
@@ -472,6 +473,74 @@ async function loadPageContent(pageId) {
 // ════════════════════════════════════════
 function esc(str) {
   return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function sanitizeFooterHtml(input) {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = String(input ?? '');
+  const allowedTags = new Set(['A', 'B', 'STRONG', 'I', 'EM', 'U', 'SPAN', 'SMALL', 'CODE', 'BR']);
+  const allowedGlobalAttrs = new Set(['title']);
+
+  const sanitizeTree = (root) => {
+    Array.from(root.children).forEach((el) => {
+      sanitizeTree(el);
+      if (!allowedTags.has(el.tagName)) {
+        el.replaceWith(...Array.from(el.childNodes));
+        return;
+      }
+
+      Array.from(el.attributes).forEach((attr) => {
+        const name = attr.name.toLowerCase();
+        const value = attr.value || '';
+        if (el.tagName === 'A') {
+          const allowedLinkAttr = name === 'href' || name === 'target' || name === 'rel' || allowedGlobalAttrs.has(name);
+          if (!allowedLinkAttr) {
+            el.removeAttribute(attr.name);
+            return;
+          }
+          if (name === 'href' && /^\s*(javascript|data):/i.test(value)) {
+            el.removeAttribute(attr.name);
+          }
+          return;
+        }
+
+        if (!allowedGlobalAttrs.has(name)) {
+          el.removeAttribute(attr.name);
+        }
+      });
+
+      if (el.tagName === 'A') {
+        el.setAttribute('rel', 'noopener');
+        if (!el.getAttribute('target')) el.setAttribute('target', '_blank');
+      }
+    });
+  };
+
+  sanitizeTree(tpl.content);
+  return tpl.innerHTML;
+}
+
+function footerHasText(html) {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html || '';
+  return (tmp.textContent || '').trim().length > 0;
+}
+
+function applyFooterDisplay() {
+  const s = S.settings || {};
+  const textHtml = sanitizeFooterHtml(s.footerText ?? DEFAULT_FOOTER_TEXT_HTML);
+  const tailHtml = sanitizeFooterHtml(s.footerTailHtml ?? DEFAULT_FOOTER_TAIL_HTML);
+
+  const iconEl = document.getElementById('footer-icon');
+  const textEl = document.getElementById('footer-text-display');
+  const tailEl = document.getElementById('footer-tail-display');
+
+  if (textEl) textEl.innerHTML = textHtml;
+  if (tailEl) {
+    tailEl.innerHTML = tailHtml;
+    tailEl.style.display = footerHasText(tailHtml) ? '' : 'none';
+  }
+  if (iconEl) iconEl.style.display = footerHasText(textHtml) ? '' : 'none';
 }
 
 function showToast(msg) {
@@ -537,8 +606,7 @@ function applySettings() {
 
   const logoName = document.getElementById('logo-name-display');
   if (logoName) logoName.textContent = s.siteName || 'My Docs';
-  const footer = document.getElementById('footer-text-display');
-  if (footer) footer.textContent = s.footerText || 'Powered by Docs';
+  applyFooterDisplay();
   document.title = s.tabTitle || 'Docs';
 
   applyShareSectionAvailability();
