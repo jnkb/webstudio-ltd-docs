@@ -59,7 +59,27 @@ function jsonRead($path, $default = null) {
 }
 
 function jsonWrite($path, $data) {
-    return file_put_contents($path, json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) !== false;
+    $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+    if ($json === false) return false;
+    // Write to a temp file then rename: rename() is atomic on the same
+    // filesystem, so a reader never sees a half-written file and two
+    // concurrent writers can't interleave bytes into one file.
+    $tmp = $path . '.tmp.' . getmypid();
+    if (file_put_contents($tmp, $json, LOCK_EX) === false) return false;
+    return rename($tmp, $path);
+}
+
+// Settings the public (unauthenticated) viewer is allowed to see. Everything
+// else in settings.json stays admin-only instead of being dumped by ?action=load.
+function publicSettings($s) {
+    if (!is_array($s)) return [];
+    $allow = ['siteName','tabTitle','accentColor','theme','lang',
+              'logoDataUrl','faviconDataUrl','footerText'];
+    $out = [];
+    foreach ($allow as $k) {
+        if (array_key_exists($k, $s)) $out[$k] = $s[$k];
+    }
+    return $out;
 }
 
 function ok($data = []) {
@@ -93,9 +113,15 @@ case 'load':
     if (is_dir(PAGES_DIR)) {
         foreach (glob(PAGES_DIR . '/*.json') as $file) {
             $page = jsonRead($file);
-            if ($page) $pages[] = $page;
+            if (!$page) continue;
+            // Public visitors never see pages flagged as draft. (Backward
+            // compatible: pages without the flag behave exactly as before.)
+            if (!$authed && !empty($page['draft'])) continue;
+            $pages[] = $page;
         }
     }
+    // Public visitors get only render-safe settings, not the whole config blob.
+    if (!$authed) $settings = publicSettings($settings);
     ok(['spaces' => $spaces, 'pages' => $pages, 'settings' => $settings]);
 
 // ── LOAD PAGE — load content of a single page ──
@@ -104,6 +130,8 @@ case 'load_page':
     if (!$id) err('Missing id');
     $page = jsonRead(PAGES_DIR . "/{$id}.json");
     if (!$page) err('Page not found', 404);
+    // Same 404 as a missing page so drafts can't be probed by id.
+    if (!$authed && !empty($page['draft'])) err('Page not found', 404);
     ok(['page' => $page]);
 
 // ── SAVE SPACES ──
@@ -175,11 +203,15 @@ case 'upload_image':
     $file = $_FILES['image'];
     if ($file['error'] !== UPLOAD_ERR_OK) err('Upload error');
 
-    // Verify MIME type
+    // Verify MIME type. NOTE: image/svg+xml is deliberately NOT allowed —
+    // an SVG is XML and can carry <script>/onload=, and finfo happily reports
+    // it as a valid image. Served from /images/ and embedded in a page, that's
+    // stored XSS in every reader's browser. If you ever truly need SVG, run it
+    // through a server-side sanitizer first; don't just whitelist the MIME.
     $finfo = finfo_open(FILEINFO_MIME_TYPE);
     $mime = finfo_file($finfo, $file['tmp_name']);
     finfo_close($finfo);
-    $allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+    $allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
     if (!in_array($mime, $allowed)) err('File type not allowed');
 
     // Max 10 MB
@@ -187,7 +219,7 @@ case 'upload_image':
 
     $ext = [
         'image/jpeg' => 'jpg', 'image/png' => 'png',
-        'image/gif' => 'gif', 'image/webp' => 'webp', 'image/svg+xml' => 'svg'
+        'image/gif' => 'gif', 'image/webp' => 'webp'
     ][$mime];
     $name = uniqid('img_', true) . '.' . $ext;
     $dest = IMAGES_DIR . '/' . $name;
