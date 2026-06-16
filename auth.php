@@ -23,7 +23,7 @@ session_name(SESSION_NAME);
 session_set_cookie_params([
     'lifetime' => SESSION_LIFETIME,
     'path'     => '/',
-    'secure'   => isset($_SERVER['HTTPS']),
+    'secure'   => docsIsHttpsRequest(),
     'httponly' => true,
     'samesite' => 'Strict',
 ]);

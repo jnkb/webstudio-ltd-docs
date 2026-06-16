@@ -29,6 +29,21 @@ Options -Indexes
 # Security headers
 <IfModule mod_headers.c>
     Header set X-Content-Type-Options "nosniff"
-    Header set X-Frame-Options "SAMEORIGIN"
+    Header always set X-Frame-Options "DENY"
     Header set Referrer-Policy "strict-origin-when-cross-origin"
 </IfModule>
+
+<Files "index.php">
+    <IfModule mod_headers.c>
+        Header always unset X-Frame-Options
+        Header always unset Content-Security-Policy
+        Header always set Content-Security-Policy "frame-ancestors *"
+    </IfModule>
+</Files>
+
+<Files "editor.php">
+    <IfModule mod_headers.c>
+        Header always unset Content-Security-Policy
+        Header always set X-Frame-Options "DENY"
+    </IfModule>
+</Files>

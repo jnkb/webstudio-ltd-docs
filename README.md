@@ -4,6 +4,7 @@ This repository is a customized fork of the original Webstudio Docs release.
 The main changes are:
 
 - **Optional simple access gate** — hides the site behind a basic token link and browser cookie
+- **Viewer-only iframe embedding** — `index.php` can be embedded in an iframe, while `editor.php` stays protected against framing.
 - **Split public viewer and admin editor** — `index.php` is now the read-only public frontend, while `editor.php` contains the authenticated editing UI.
 - **Shared frontend assets** — styles and translations were moved into `assets/app.css` and `assets/i18n.js` so both entry points stay in sync.
 - **German language support** — the interface now includes built-in German translations with centralized language configuration.
@@ -133,6 +134,7 @@ No `npm install`. No environment variables. No database migrations. No Docker. J
 - **Rate limiting** — 10 attempts per 5 minutes, brute force protection
 - **`.htaccess` protection** — blocks direct access to data files
 - **Optional simple access gate** — hides the site behind a basic token link and browser cookie
+- **Viewer-only iframe support** — `index.php` may be embedded; `editor.php` remains frame-blocked
 - **No database** — no SQL injection possible. Ever.
 
 ### Developer-Friendly
@@ -235,8 +237,9 @@ How it works:
 
 1. Put a token value into `data/access_key.txt`.
 2. Open the site once with `?token=YOUR_TOKEN` appended to the URL.
-3. The app sets a browser cookie and immediately redirects to the clean URL.
-4. After that, the browser can access `index.php`, `editor.php`, `api.php`, and `auth.php` without the token.
+3. The app sets a browser cookie for the docs domain.
+4. In `index.php`, the token is removed from the visible URL after the first successful load, so internal viewer navigation and shared page links stay clean.
+5. After that, the browser can access `index.php`, `editor.php`, `api.php`, and `auth.php` without the token as long as the cookie is still accepted and present.
 
 Example:
 
@@ -253,9 +256,29 @@ Notes:
 
 - The first non-empty line of `data/access_key.txt` is used as the token value.
 - If `data/access_key.txt` is empty or missing, the simple access gate is disabled.
-- The token is removed from the URL after the first successful visit.
+- The token is only needed for the initial unlock request; the viewer no longer appends it to internal page URLs after that.
 - The cookie is browser-based, so each browser or device must be unlocked once.
+- If you embed the docs in an iframe, only `index.php` is intended to be embedded. `editor.php` stays frame-blocked on purpose.
+- For iframe embedding, use HTTPS so the access-gate cookie can be sent reliably by modern browsers.
 - This is meant to reduce accidental exposure, not to replace real authentication or server-side security.
+
+### Embedding the Viewer in an iframe
+
+`index.php` is the supported embeddable entry point. The admin editor in `editor.php` is intentionally not embeddable.
+
+Example:
+
+```html
+<iframe
+  src="https://your-domain.example/index.php?page=installation"
+  width="100%"
+  height="900"
+  style="border:0"
+  loading="lazy"
+></iframe>
+```
+
+If the optional access gate is enabled, unlock the viewer once with `?token=...` on the docs domain first. After that, normal viewer navigation keeps clean URLs without repeating the token parameter.
 
 ---
 

@@ -14,6 +14,24 @@ define('DOCS_ACCESS_COOKIE_TTL', 3600 * 24 * 30);
 define('DOCS_ACCESS_KEY_FILE', __DIR__ . '/data/access_key.txt');
 define('DOCS_ACCESS_QUERY_PARAM', 'token');
 
+function docsIsHttpsRequest() {
+    if (!empty($_SERVER['HTTPS']) && strtolower((string)$_SERVER['HTTPS']) !== 'off') {
+        return true;
+    }
+
+    if (!empty($_SERVER['HTTP_X_FORWARDED_PROTO'])) {
+        $forwardedProto = strtolower(trim(explode(',', (string)$_SERVER['HTTP_X_FORWARDED_PROTO'])[0]));
+        return $forwardedProto === 'https';
+    }
+
+    return false;
+}
+
+function docsCookieSameSite() {
+    // Cross-site iframe cookies require SameSite=None and Secure.
+    return docsIsHttpsRequest() ? 'None' : 'Lax';
+}
+
 function docsAccessReadConfig() {
     if (!is_file(DOCS_ACCESS_KEY_FILE)) {
         return ['enabled' => false];
@@ -50,9 +68,9 @@ function docsAccessCookieOptions($expires) {
     return [
         'expires' => $expires,
         'path' => '/',
-        'secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
+        'secure' => docsIsHttpsRequest(),
         'httponly' => true,
-        'samesite' => 'Lax',
+        'samesite' => docsCookieSameSite(),
     ];
 }
 
@@ -120,8 +138,7 @@ $docsAccessRequestValue = $_GET[DOCS_ACCESS_QUERY_PARAM] ?? null;
 
 if (is_string($docsAccessRequestValue) && hash_equals($docsAccessValue, $docsAccessRequestValue)) {
     docsAccessSetCookieValue($docsAccessExpectedCookie, time() + DOCS_ACCESS_COOKIE_TTL);
-    header('Location: ' . docsAccessCurrentUrlWithoutParam(DOCS_ACCESS_QUERY_PARAM), true, 302);
-    exit;
+    return;
 }
 
 $docsAccessCookie = $_COOKIE[DOCS_ACCESS_COOKIE_NAME] ?? '';

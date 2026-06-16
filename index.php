@@ -427,15 +427,99 @@ let feedbackSaving = false;
 
 const FEEDBACK_STORAGE_KEY = 'ws_docs_feedback';
 const THEME_STORAGE_KEY = 'ws_docs_theme';
+const ACCESS_TOKEN_QUERY_PARAM = 'token';
+const ACCESS_TOKEN_STORAGE_KEY = 'ws_docs_access_token';
 const FEEDBACK_VALUE_MAP = { '1': '1', '0': '0', '-1': '-1', '👍': '1', '😐': '0', '👎': '-1' };
 const FEEDBACK_ICON_BY_VALUE = { '1': '👍', '0': '😐', '-1': '👎' };
+let accessTokenCache = '';
+
+function getAccessTokenFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get(ACCESS_TOKEN_QUERY_PARAM) || '';
+}
+
+function readStoredAccessToken() {
+  try {
+    return sessionStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) || '';
+  } catch (e) {
+    return '';
+  }
+}
+
+function writeStoredAccessToken(token) {
+  accessTokenCache = token || '';
+  try {
+    if (accessTokenCache) sessionStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, accessTokenCache);
+    else sessionStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+  } catch (e) {}
+}
+
+function getActiveAccessToken() {
+  if (accessTokenCache) return accessTokenCache;
+
+  const urlToken = getAccessTokenFromUrl();
+  if (urlToken) {
+    writeStoredAccessToken(urlToken);
+    return urlToken;
+  }
+
+  const storedToken = readStoredAccessToken();
+  if (storedToken) {
+    accessTokenCache = storedToken;
+    return storedToken;
+  }
+
+  return '';
+}
+
+function buildViewerUrl(pageId = '', options = {}) {
+  const { includeAccessToken = false } = options;
+  const url = new URL(window.location.pathname, window.location.origin);
+  if (pageId) url.searchParams.set('page', pageId);
+
+  if (includeAccessToken) {
+    const accessToken = getActiveAccessToken();
+    if (accessToken) url.searchParams.set(ACCESS_TOKEN_QUERY_PARAM, accessToken);
+  }
+
+  return url.pathname + url.search + url.hash;
+}
+
+function stripAccessTokenFromCurrentUrl() {
+  if (!getAccessTokenFromUrl()) return;
+  history.replaceState(history.state, '', buildViewerUrl(new URLSearchParams(window.location.search).get('page') || ''));
+}
+
+function restoreAccessTokenInUrlForReload() {
+  const accessToken = getActiveAccessToken();
+  if (!accessToken) return;
+
+  const pageId = new URLSearchParams(window.location.search).get('page') || '';
+  history.replaceState(history.state, '', buildViewerUrl(pageId, { includeAccessToken: true }));
+}
+
+function withAccessToken(url) {
+  const accessToken = getActiveAccessToken();
+  if (!accessToken) return url;
+
+  const resolvedUrl = new URL(url, window.location.href);
+  if (!resolvedUrl.searchParams.has(ACCESS_TOKEN_QUERY_PARAM)) {
+    resolvedUrl.searchParams.set(ACCESS_TOKEN_QUERY_PARAM, accessToken);
+  }
+
+  return resolvedUrl.pathname + resolvedUrl.search + resolvedUrl.hash;
+}
+
+writeStoredAccessToken(getAccessTokenFromUrl() || readStoredAccessToken());
+stripAccessTokenFromCurrentUrl();
+window.addEventListener('beforeunload', restoreAccessTokenInUrlForReload);
 
 // ════════════════════════════════════════
 //  DATA — server JSON (api.php, read-only)
 // ════════════════════════════════════════
 async function load() {
   try {
-    const r = await fetch('api.php?action=load', { credentials: 'same-origin' });
+    const r = await fetch(withAccessToken('api.php?action=load'), { credentials: 'same-origin' });
     const d = await r.json();
     if (!d.ok) throw new Error(d.error);
     S.spaces   = d.spaces   || [];
@@ -460,7 +544,7 @@ async function loadPageContent(pageId) {
   const page = S.pages.find(p => p.id === pageId);
   if (!page || page._contentLoaded) return page;
   try {
-    const r = await fetch(`api.php?action=load_page&id=${pageId}`, { credentials: 'same-origin' });
+    const r = await fetch(withAccessToken(`api.php?action=load_page&id=${encodeURIComponent(pageId)}`), { credentials: 'same-origin' });
     const d = await r.json();
     if (d.ok && d.page) {
       Object.assign(page, d.page);
@@ -829,7 +913,7 @@ async function navigateTo(pageId) {
   renderNav();
   await loadPageContent(pageId);
   renderPage();
-  history.pushState({ pageId }, '', `${window.location.pathname}?page=${encodeURIComponent(pageId)}`);
+  history.pushState({ pageId }, '', buildViewerUrl(pageId));
   document.querySelector('.content-wrap')?.scrollTo(0, 0);
   window.scrollTo(0, 0);
 }
@@ -1392,7 +1476,7 @@ async function react(r, icon = '') {
   feedbackSaving = true;
   setFeedbackButtonsDisabled(true);
   try {
-    const res = await fetch('api.php?action=save_rating', {
+    const res = await fetch(withAccessToken('api.php?action=save_rating'), {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
