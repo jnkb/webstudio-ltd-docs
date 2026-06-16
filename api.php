@@ -40,17 +40,23 @@ $action = $_GET['action'] ?? $_POST['action'] ?? '';
 // ── Helper functions ────────────────────────
 function ensureDirs() {
     foreach ([DATA_DIR, PAGES_DIR, IMAGES_DIR] as $dir) {
-        if (!is_dir($dir)) mkdir($dir, 0755, true);
+        if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {
+            err('Failed to initialize storage directories', 500);
+        }
     }
     // Protect data directory from direct web access
     $htaccess = DATA_DIR . '/.htaccess';
     if (!file_exists($htaccess)) {
-        file_put_contents($htaccess, "# Deny all direct access to data files\n<IfModule mod_authz_core.c>\n    Require all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\n    Order deny,allow\n    Deny from all\n</IfModule>\n");
+        if (@file_put_contents($htaccess, "# Deny all direct access to data files\n<IfModule mod_authz_core.c>\n    Require all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\n    Order deny,allow\n    Deny from all\n</IfModule>\n") === false) {
+            err('Failed to protect the data directory', 500);
+        }
     }
     // Also add index.php to prevent directory listing as fallback
     $index = DATA_DIR . '/index.php';
     if (!file_exists($index)) {
-        file_put_contents($index, "<?php http_response_code(403); exit('Forbidden');");
+        if (@file_put_contents($index, "<?php http_response_code(403); exit('Forbidden');") === false) {
+            err('Failed to protect the data directory', 500);
+        }
     }
 }
 
@@ -62,6 +68,66 @@ function jsonRead($path, $default = null) {
 
 function jsonWrite($path, $data) {
     return file_put_contents($path, json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) !== false;
+}
+
+function uploadErrorMessage($code) {
+    $messages = [
+        UPLOAD_ERR_INI_SIZE => 'File too large',
+        UPLOAD_ERR_FORM_SIZE => 'File too large',
+        UPLOAD_ERR_PARTIAL => 'Upload incomplete',
+        UPLOAD_ERR_NO_FILE => 'No file uploaded',
+        UPLOAD_ERR_NO_TMP_DIR => 'Temporary upload directory is missing',
+        UPLOAD_ERR_CANT_WRITE => 'Upload directory is not writable',
+        UPLOAD_ERR_EXTENSION => 'Upload blocked by a PHP extension',
+    ];
+
+    return $messages[$code] ?? 'Upload error';
+}
+
+function detectUploadedImageMime($path) {
+    if (!is_string($path) || $path === '' || !is_file($path) || !is_readable($path)) {
+        return null;
+    }
+
+    $allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+    $candidates = [];
+
+    if (function_exists('finfo_open') && defined('FILEINFO_MIME_TYPE')) {
+        $finfo = @finfo_open(FILEINFO_MIME_TYPE);
+        if ($finfo) {
+            $mime = @finfo_file($finfo, $path);
+            @finfo_close($finfo);
+            if (is_string($mime) && $mime !== '') {
+                $candidates[] = $mime;
+            }
+        }
+    }
+
+    if (function_exists('getimagesize')) {
+        $imageInfo = @getimagesize($path);
+        if (is_array($imageInfo) && !empty($imageInfo['mime']) && is_string($imageInfo['mime'])) {
+            $candidates[] = $imageInfo['mime'];
+        }
+    }
+
+    $snippet = @file_get_contents($path, false, null, 0, 2048);
+    if (is_string($snippet) && preg_match('/<svg\b/i', $snippet)) {
+        $candidates[] = 'image/svg+xml';
+    }
+
+    foreach ($candidates as $candidate) {
+        if (in_array($candidate, $allowed, true)) {
+            return $candidate;
+        }
+    }
+
+    foreach ($candidates as $candidate) {
+        if (is_string($candidate) && $candidate !== '') {
+            return $candidate;
+        }
+    }
+
+    return null;
 }
 
 function pageFilePath($id) {
@@ -354,16 +420,23 @@ case 'delete_page':
 // ── UPLOAD IMAGE ──
 case 'upload_image':
     requireAuth();
-    if (empty($_FILES['image'])) err('No file uploaded');
+    if (empty($_FILES['image']) || !is_array($_FILES['image'])) err('No file uploaded');
     $file = $_FILES['image'];
-    if ($file['error'] !== UPLOAD_ERR_OK) err('Upload error');
+    $uploadError = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
+    if ($uploadError !== UPLOAD_ERR_OK) err(uploadErrorMessage($uploadError));
+
+    $tmpName = $file['tmp_name'] ?? '';
+    if (!is_string($tmpName) || $tmpName === '' || !is_uploaded_file($tmpName)) err('Invalid upload');
+
+    if (!is_dir(IMAGES_DIR) && !@mkdir(IMAGES_DIR, 0755, true) && !is_dir(IMAGES_DIR)) {
+        err('Upload directory is not available', 500);
+    }
+    if (!is_writable(IMAGES_DIR)) err('Upload directory is not writable', 500);
 
     // Verify MIME type
-    $finfo = finfo_open(FILEINFO_MIME_TYPE);
-    $mime = finfo_file($finfo, $file['tmp_name']);
-    finfo_close($finfo);
+    $mime = detectUploadedImageMime($tmpName);
     $allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
-    if (!in_array($mime, $allowed)) err('File type not allowed');
+    if (!$mime || !in_array($mime, $allowed, true)) err('File type not allowed');
 
     // Max 10 MB
     if ($file['size'] > 10 * 1024 * 1024) err('File too large (max 10 MB)');
@@ -375,7 +448,7 @@ case 'upload_image':
     $name = uniqid('img_', true) . '.' . $ext;
     $dest = IMAGES_DIR . '/' . $name;
 
-    if (!move_uploaded_file($file['tmp_name'], $dest)) err('Failed to save file');
+    if (!@move_uploaded_file($tmpName, $dest)) err('Failed to save file', 500);
 
     // Return web-relative URL
     $baseUrl = rtrim(dirname($_SERVER['PHP_SELF']), '/');

@@ -937,6 +937,23 @@ async function refreshCurrentPageRatings(force = false) {
   renderPage();
 }
 
+async function parseApiJsonResponse(response) {
+  const raw = await response.text();
+
+  try {
+    return raw ? JSON.parse(raw) : {};
+  } catch (error) {
+    const message = raw
+      .replace(/<br\s*\/?>/gi, ' ')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 180);
+
+    throw new Error(message || response.statusText || `HTTP ${response.status}`);
+  }
+}
+
 async function save() {
   // Uloží spaces + settings (nie pages — tie sa ukladajú zvlášť cez savePage)
   try {
@@ -1741,12 +1758,13 @@ function changeCover() {
     fd.append('image', file);
     try {
       const r = await fetch('api.php?action=upload_image', { method:'POST', body:fd, credentials:'same-origin' });
-      const d = await r.json();
+      const d = await parseApiJsonResponse(r);
+      if (!d.ok) throw new Error(d.error || t('toastUploadError'));
       if (d.url) {
         const page = S.pages.find(p => p.id === S.currentPageId);
         if (page) { page.cover = { type:'image', value:d.url }; await savePageToServer(page); renderPage(); }
       }
-    } catch(e) { showToast(t('toastUploadError')); }
+    } catch(e) { showToast(e?.message || t('toastUploadError')); }
   };
   input.click();
 }
@@ -2055,12 +2073,13 @@ class LocalImageTool {
       const r = await fetch('api.php?action=upload_image', {
         method: 'POST', credentials: 'same-origin', body: fd
       });
-      const d = await r.json();
+      const d = await parseApiJsonResponse(r);
       if (!d.ok) throw new Error(d.error);
       this.data.url = d.url;
       this.data.filename = d.filename;
       this._renderImage();
     } catch(e) {
+      console.error('Image upload failed', e);
       this._wrapper.innerHTML = `<div style="padding:16px;text-align:center;color:#ef4444"><i class="fa-solid fa-circle-exclamation"></i> Upload zlyhal: ${e.message}</div>`;
       setTimeout(() => this._renderUploader(), 2000);
     }
