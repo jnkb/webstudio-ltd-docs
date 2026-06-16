@@ -3,6 +3,7 @@
 This repository is a customized fork of the original Webstudio Docs release.
 The main changes are:
 
+- **Optional simple access gate** — hides the site behind a basic token link and browser cookie
 - **Split public viewer and admin editor** — `index.php` is now the read-only public frontend, while `editor.php` contains the authenticated editing UI.
 - **Shared frontend assets** — styles and translations were moved into `assets/app.css` and `assets/i18n.js` so both entry points stay in sync.
 - **German language support** — the interface now includes built-in German translations with centralized language configuration.
@@ -131,6 +132,7 @@ No `npm install`. No environment variables. No database migrations. No Docker. J
 - **Bcrypt hashing** — passwords stored securely, never in plain text
 - **Rate limiting** — 10 attempts per 5 minutes, brute force protection
 - **`.htaccess` protection** — blocks direct access to data files
+- **Optional simple access gate** — hides the site behind a basic token link and browser cookie
 - **No database** — no SQL injection possible. Ever.
 
 ### Developer-Friendly
@@ -195,6 +197,7 @@ your-docs-site/
 │   └── i18n.js    ← Shared translations, icons, language config
 ├── data/
 │   ├── index.php      ← Directory protection helper
+│   ├── access_key.txt ← Optional simple access gate token
 │   ├── auth.json      ← Hashed password (bcrypt)
 │   ├── settings.json  ← Site configuration
 │   ├── spaces.json    ← Space definitions
@@ -221,6 +224,38 @@ your-docs-site/
 location /data/ { deny all; return 403; }
 location ~ \.json$ { deny all; return 403; }
 ```
+
+### Optional Simple Access Gate
+
+If you want to hide the docs from casual visitors, search engines, or AI crawlers, you can enable a very simple token-based access gate.
+
+This is intentionally **not** a high-security system. It is only a rudimentary access barrier for shared links and basic privacy. Do not rely on it to protect sensitive data.
+
+How it works:
+
+1. Put a token value into `data/access_key.txt`.
+2. Open the site once with `?token=YOUR_TOKEN` appended to the URL.
+3. The app sets a browser cookie and immediately redirects to the clean URL.
+4. After that, the browser can access `index.php`, `editor.php`, `api.php`, and `auth.php` without the token.
+
+Example:
+
+```txt
+data/access_key.txt
+my-share-token-123
+```
+
+```txt
+https://your-domain.example/?token=my-share-token-123
+```
+
+Notes:
+
+- The first non-empty line of `data/access_key.txt` is used as the token value.
+- If `data/access_key.txt` is empty or missing, the simple access gate is disabled.
+- The token is removed from the URL after the first successful visit.
+- The cookie is browser-based, so each browser or device must be unlocked once.
+- This is meant to reduce accidental exposure, not to replace real authentication or server-side security.
 
 ---
 

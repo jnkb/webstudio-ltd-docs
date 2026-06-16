@@ -1,4 +1,6 @@
 <?php
+require __DIR__ . '/access_guard.php';
+
 /**
  * ╔══════════════════════════════════════════════════════════╗
  * ║  Webstudio Docs — api.php                                ║

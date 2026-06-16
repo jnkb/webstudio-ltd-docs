@@ -1,4 +1,6 @@
 <?php
+require __DIR__ . '/access_guard.php';
+
 /**
  * Server-side OG meta tags for social media crawlers.
  * Calculates og:title, og:description, og:image for the requested page.
