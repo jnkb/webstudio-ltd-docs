@@ -1474,7 +1474,9 @@ function renderSpaces() {
   if (!strip) return;
   strip.innerHTML = '';
 
-  S.spaces.forEach(sp => {
+  const canReorder = S.authed && S.spaces.length > 1;
+
+  S.spaces.forEach((sp, idx) => {
     const spacePageList = S.pages.filter(p => p.spaceId === sp.id);
     const firstPage = spacePageList.find(p => !p.parentId) || spacePageList[0] || null;
     const el = document.createElement('div');
@@ -1498,6 +1500,32 @@ function renderSpaces() {
         switchSpace(sp.id);
       });
       el.appendChild(label);
+    }
+
+    if (canReorder) {
+      const leftBtn = document.createElement('button');
+      leftBtn.type = 'button';
+      leftBtn.className = 'tab-move-btn';
+      leftBtn.title = t('btnMoveSpaceLeft');
+      leftBtn.innerHTML = '<i class="fa-solid fa-chevron-left"></i>';
+      leftBtn.disabled = idx === 0;
+      leftBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        moveSpace(idx, idx - 1);
+      });
+      el.appendChild(leftBtn);
+
+      const rightBtn = document.createElement('button');
+      rightBtn.type = 'button';
+      rightBtn.className = 'tab-move-btn';
+      rightBtn.title = t('btnMoveSpaceRight');
+      rightBtn.innerHTML = '<i class="fa-solid fa-chevron-right"></i>';
+      rightBtn.disabled = idx === S.spaces.length - 1;
+      rightBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        moveSpace(idx, idx + 1);
+      });
+      el.appendChild(rightBtn);
     }
 
     if (S.authed) {
@@ -1529,6 +1557,16 @@ function renderSpaces() {
   strip.appendChild(addBtn);
 
   applySpaceTabsVisibility();
+}
+
+async function moveSpace(fromIdx, toIdx) {
+  if (fromIdx < 0 || toIdx < 0 || fromIdx >= S.spaces.length || toIdx >= S.spaces.length) return;
+  if (fromIdx === toIdx) return;
+  const moved = S.spaces.splice(fromIdx, 1)[0];
+  S.spaces.splice(toIdx, 0, moved);
+  renderSpaces();
+  await save();
+  showToast(t('toastOrderSaved'));
 }
 
 let editingSpaceId = null;

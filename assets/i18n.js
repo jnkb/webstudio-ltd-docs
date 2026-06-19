@@ -63,6 +63,7 @@ const TRANSLATIONS = {
         btnSettings: 'Settings', btnReadingMode: 'Reading mode (focus)',
         btnToggleTheme: 'Toggle theme', btnTranslate: 'Translate page',
         btnEditSpace: 'Edit space', btnNewSpace: 'New space',
+        btnMoveSpaceLeft: 'Move space left', btnMoveSpaceRight: 'Move space right',
         btnEditPage: 'Edit page', btnSubpage: 'Subpage', btnDeletePage: 'Delete',
         btnAddPageSection: 'Add to section',
         // ── Reading time & nav ──
@@ -260,6 +261,7 @@ const TRANSLATIONS = {
         btnSettings: 'Einstellungen', btnReadingMode: 'Lesemodus (Fokus)',
         btnToggleTheme: 'Design umschalten', btnTranslate: 'Seite übersetzen',
         btnEditSpace: 'Bereich bearbeiten', btnNewSpace: 'Neuer Bereich',
+        btnMoveSpaceLeft: 'Bereich nach links', btnMoveSpaceRight: 'Bereich nach rechts',
         btnEditPage: 'Seite bearbeiten', btnSubpage: 'Unterseite', btnDeletePage: 'Löschen',
         btnAddPageSection: 'Zu Abschnitt hinzufügen',
         readingTimeLabel: (mins, words) => `${mins} Min. Lesezeit · ${words} Wörter`,
@@ -427,6 +429,7 @@ const TRANSLATIONS = {
         btnLogin: 'Prihlásiť sa', btnLoggedIn: 'Prihlásený', btnLogout: 'Odhlásiť',
         btnSettings: 'Nastavenia', btnReadingMode: 'Čítací mód (fokus)',
         btnToggleTheme: 'Prepnúť tému', btnTranslate: 'Preložiť stránku',
+        btnMoveSpaceLeft: 'Presunúť priestor vľavo', btnMoveSpaceRight: 'Presunúť priestor vpravo',
         btnEditSpace: 'Upraviť priestor', btnNewSpace: 'Nový priestor',
         btnEditPage: 'Upraviť stránku', btnSubpage: 'Podstránka', btnDeletePage: 'Vymazať',
         btnAddPageSection: 'Pridať do sekcie',
