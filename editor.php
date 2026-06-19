@@ -1105,6 +1105,52 @@ function pageSlug(title) {
   return candidate;
 }
 
+function buildPageHref(pageId = '') {
+  const url = new URL(window.location.pathname, window.location.origin);
+  if (pageId) url.searchParams.set('page', pageId);
+  return url.pathname + url.search + url.hash;
+}
+
+function isPrimaryNavigationClick(event) {
+  return event.button === 0
+    && !event.defaultPrevented
+    && !event.metaKey
+    && !event.ctrlKey
+    && !event.shiftKey
+    && !event.altKey;
+}
+
+function bindEditorPageLinks(root = document) {
+  root.querySelectorAll('a[data-page-id]').forEach(link => {
+    if (link.dataset.navBound === '1') return;
+    link.dataset.navBound = '1';
+    link.draggable = false;
+
+    link.addEventListener('click', event => {
+      if (!isPrimaryNavigationClick(event)) return;
+      event.preventDefault();
+
+      const pageId = link.dataset.pageId || '';
+      const targetSpaceId = link.dataset.spaceId || '';
+      const shouldCloseSearch = link.dataset.closeSearch === '1';
+      if (!pageId) return;
+
+      if (shouldCloseSearch) {
+        const searchInput = document.getElementById('search-input');
+        if (searchInput) searchInput.value = '';
+        closeSearchDD();
+      }
+
+      if (targetSpaceId && targetSpaceId !== S.currentSpaceId) {
+        S.currentSpaceId = targetSpaceId;
+        renderSpaces();
+      }
+
+      navigateTo(pageId);
+    });
+  });
+}
+
 function formatDate(iso) {
   if (!iso) return '';
   const d = new Date(iso);
@@ -1434,10 +1480,39 @@ function renderSpaces() {
   strip.innerHTML = '';
 
   S.spaces.forEach(sp => {
+    const spacePageList = S.pages.filter(p => p.spaceId === sp.id);
+    const firstPage = spacePageList.find(p => !p.parentId) || spacePageList[0] || null;
     const el = document.createElement('div');
     el.className = 'tab-item' + (sp.id === S.currentSpaceId ? ' active' : '');
-    el.innerHTML = `<i class="fa-solid ${sp.icon || 'fa-book'}"></i><span>${esc(sp.name)}</span>${S.authed ? `<button class="tab-edit-btn" title="${t('btnEditSpace')}"><i class="fa-solid fa-pen"></i></button>` : ''}`;
-    el.onclick = () => switchSpace(sp.id);
+
+    if (firstPage) {
+      const link = document.createElement('a');
+      link.className = 'tab-link';
+      link.href = buildPageHref(firstPage.id);
+      link.dataset.pageId = firstPage.id;
+      link.dataset.spaceId = sp.id;
+      link.innerHTML = `<i class="fa-solid ${sp.icon || 'fa-book'}"></i><span>${esc(sp.name)}</span>`;
+      el.appendChild(link);
+    } else {
+      const label = document.createElement('div');
+      label.className = 'tab-link';
+      label.innerHTML = `<i class="fa-solid ${sp.icon || 'fa-book'}"></i><span>${esc(sp.name)}</span>`;
+      label.addEventListener('click', event => {
+        if (!isPrimaryNavigationClick(event)) return;
+        event.preventDefault();
+        switchSpace(sp.id);
+      });
+      el.appendChild(label);
+    }
+
+    if (S.authed) {
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'tab-edit-btn';
+      editBtn.title = t('btnEditSpace');
+      editBtn.innerHTML = '<i class="fa-solid fa-pen"></i>';
+      el.appendChild(editBtn);
+    }
 
     if (S.authed) {
       el.querySelector('.tab-edit-btn')?.addEventListener('click', (e) => {
@@ -1448,6 +1523,8 @@ function renderSpaces() {
 
     strip.appendChild(el);
   });
+
+  bindEditorPageLinks(strip);
 
   // Add space button — admin only
   const addBtn = document.createElement('button');
@@ -1641,7 +1718,7 @@ function renderNavItem(page, container, depth, allPages) {
   item.dataset.pageId = page.id;
 
   const toggleHtml = children.length
-    ? `<div class="nav-toggle${isOpen ? ' open' : ''}" onclick="event.stopPropagation();toggleChildren(this,'${page.id}')"><i class="fa-solid fa-chevron-right"></i></div>`
+    ? `<button type="button" class="nav-toggle${isOpen ? ' open' : ''}" onclick="event.stopPropagation();toggleChildren(this,'${page.id}')" aria-expanded="${isOpen ? 'true' : 'false'}" aria-controls="children-${page.id}" aria-label="Toggle ${esc(page.title)}"><i class="fa-solid fa-chevron-right"></i></button>`
     : `<div class="nav-toggle-spacer"></div>`;
 
   const actionsHtml = isAdmin ? `
@@ -1653,11 +1730,12 @@ function renderNavItem(page, container, depth, allPages) {
 
   item.innerHTML = `
     ${toggleHtml}
-    <span class="nav-ic"><i class="fa-solid ${page.icon || 'fa-file'}"></i></span>
-    <span class="nav-label">${esc(page.title)}</span>
+    <a class="nav-link" href="${esc(buildPageHref(page.id))}" data-page-id="${esc(page.id)}">
+      <span class="nav-ic"><i class="fa-solid ${page.icon || 'fa-file'}"></i></span>
+      <span class="nav-label">${esc(page.title)}</span>
+    </a>
     ${actionsHtml}
   `;
-  item.onclick = () => navigateTo(page.id);
   wrap.appendChild(item);
 
   if (children.length) {
@@ -1669,10 +1747,12 @@ function renderNavItem(page, container, depth, allPages) {
   }
 
   container.appendChild(wrap);
+  bindEditorPageLinks(wrap);
 }
 
 function toggleChildren(btn, pageId) {
   btn.classList.toggle('open');
+  btn.setAttribute('aria-expanded', btn.classList.contains('open') ? 'true' : 'false');
   const sub = document.getElementById('children-' + pageId);
   if (sub) sub.classList.toggle('open');
 }
@@ -1712,7 +1792,7 @@ async function navigateTo(pageId) {
   await loadPageContent(pageId);
   renderPage();
   // Update URL
-  const newUrl = `${window.location.pathname}?page=${encodeURIComponent(pageId)}`;
+  const newUrl = buildPageHref(pageId);
   history.pushState({ pageId }, '', newUrl);
   // Scroll to top
   document.querySelector('.content-wrap')?.scrollTo(0, 0);
@@ -1757,7 +1837,7 @@ function renderPage() {
   }
   // Všetci predkovia ako klikateľné linky
   ancestors.forEach(a => {
-    breadParts.push(`<span onclick="navigateTo('${a.id}')">${esc(a.title)}</span>`);
+    breadParts.push(`<a href="${esc(buildPageHref(a.id))}" data-page-id="${esc(a.id)}">${esc(a.title)}</a>`);
     breadParts.push(`<i class="fa-solid fa-chevron-right"></i>`);
   });
   // Aktuálna stránka
@@ -1809,6 +1889,7 @@ function renderPage() {
     <div id="page-nav-bottom"></div>
   `;
 
+  bindEditorPageLinks(view);
   updatePageNavBottom(page);
   initEditor(page);
 
@@ -2014,15 +2095,16 @@ function updatePageNavBottom(page) {
 
   el.className = 'page-nav';
   el.innerHTML = `
-    ${prev ? `<div class="page-nav-card" onclick="navigateTo('${prev.id}')">
+    ${prev ? `<a class="page-nav-card" href="${esc(buildPageHref(prev.id))}" data-page-id="${esc(prev.id)}">
       <div class="page-nav-dir"><i class="fa-solid fa-arrow-left"></i> ${t('navPrev')}</div>
       <div class="page-nav-title"><i class="fa-solid ${prev.icon || 'fa-file'}"></i>${esc(prev.title)}</div>
-    </div>` : '<div></div>'}
-    ${next ? `<div class="page-nav-card right" onclick="navigateTo('${next.id}')">
+    </a>` : '<div></div>'}
+    ${next ? `<a class="page-nav-card right" href="${esc(buildPageHref(next.id))}" data-page-id="${esc(next.id)}">
       <div class="page-nav-dir">${t('navNext')} <i class="fa-solid fa-arrow-right"></i></div>
       <div class="page-nav-title"><i class="fa-solid ${next.icon || 'fa-file'}"></i>${esc(next.title)}</div>
-    </div>` : '<div></div>'}
+    </a>` : '<div></div>'}
   `;
+  bindEditorPageLinks(el);
 }
 
 // ════════════════════════════════════════
@@ -3748,14 +3830,15 @@ function handleSearch(q) {
     dd.innerHTML = `<div class="search-empty"><i class="fa-solid fa-magnifying-glass" style="margin-right:6px"></i>${t('searchNoResults')}</div>`;
   } else {
     dd.innerHTML = results.map(p => `
-      <div class="search-result-item" onclick="selectSearch('${p.id}')">
+      <a class="search-result-item" href="${esc(buildPageHref(p.id))}" data-page-id="${esc(p.id)}" data-space-id="${esc(p.spaceId || '')}" data-close-search="1">
         <i class="fa-solid ${p.icon || 'fa-file'}"></i>
         <div>
           <div class="search-result-title">${esc(p.title)}</div>
           ${p.subtitle ? `<div class="search-result-path">${esc(p.subtitle.slice(0,60))}</div>` : ''}
         </div>
-      </div>`).join('');
+      </a>`).join('');
   }
+  bindEditorPageLinks(dd);
   dd.classList.add('open');
 }
 
@@ -5282,16 +5365,17 @@ handleSearch = function(q) {
       const titleHl = highlight(p.title, q);
       const subtitleHl = p.subtitle ? highlight(p.subtitle.slice(0, 60), q) : '';
       return `
-        <div class="search-result-item" onclick="selectSearch('${p.id}')">
+        <a class="search-result-item" href="${esc(buildPageHref(p.id))}" data-page-id="${esc(p.id)}" data-space-id="${esc(p.spaceId || '')}" data-close-search="1">
           <i class="fa-solid ${p.icon || 'fa-file'}"></i>
           <div style="min-width:0;flex:1">
             <div class="search-result-title">${titleHl}</div>
             ${subtitleHl ? `<div class="search-result-path">${subtitleHl}</div>` : ''}
             ${snippet ? `<div class="search-result-snippet">${snippet}</div>` : ''}
           </div>
-        </div>`;
+        </a>`;
     }).join('');
   }
+  bindEditorPageLinks(dd);
   dd.classList.add('open');
 };
 

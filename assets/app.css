@@ -186,6 +186,12 @@ body {
   cursor: pointer; border-bottom: 2px solid transparent;
   white-space: nowrap; flex-shrink: 0;
   transition: all var(--transition); height: 100%;
+  text-decoration: none;
+}
+.tab-link {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 7px;
+  color: inherit; text-decoration: none;
 }
 .tab-item:hover { color: var(--text); background: rgba(var(--accent-rgb),0.04); }
 .tab-item.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 500; }
@@ -278,10 +284,18 @@ body {
   display: flex; align-items: center; justify-content: center;
   color: var(--text3); font-size: 9px; border-radius: 3px;
   transition: all 0.15s; margin-right: 2px;
+  border: none; background: none; padding: 0;
+  appearance: none; cursor: pointer;
 }
 .nav-toggle:hover { background: var(--bg5); color: var(--text2); }
 .nav-toggle.open { transform: rotate(90deg); }
 .nav-toggle-spacer { width: 18px; flex-shrink: 0; margin-right: 2px; }
+
+.nav-link {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center;
+  color: inherit; text-decoration: none;
+}
 
 .nav-ic {
   width: 16px; flex-shrink: 0; text-align: center;
@@ -363,7 +377,10 @@ body {
   font-size: 11px; color: var(--text3); margin-bottom: 20px;
   text-transform: uppercase; letter-spacing: 0.04em;
 }
+.breadcrumb a,
 .breadcrumb span { cursor: pointer; transition: color var(--transition); display: flex; align-items: center; gap: 4px; }
+.breadcrumb a { color: inherit; text-decoration: none; }
+.breadcrumb a:hover,
 .breadcrumb span:hover { color: var(--text); }
 .breadcrumb span:last-child { color: var(--text2); cursor: default; font-weight: 600; pointer-events: none; }
 .breadcrumb i.fa-chevron-right { font-size: 8px; color: var(--text4); }
@@ -1248,6 +1265,7 @@ h3.ce-header { font-size: 17px; font-weight: 600; margin: 0 0 2px; }
   border: 1px solid var(--border);
   transition: all var(--transition);
   display: flex; flex-direction: column; gap: 3px;
+  text-decoration: none; color: inherit;
 }
 .page-nav-card:hover { border-color: var(--border2); background: var(--bg3); }
 .page-nav-card.right { text-align: right; align-items: flex-end; }
@@ -1395,6 +1413,7 @@ h3.ce-header { font-size: 17px; font-weight: 600; margin: 0 0 2px; }
 .search-result-item {
   display: flex; align-items: center; gap: 10px;
   padding: 10px 16px; cursor: pointer; transition: background var(--transition);
+  text-decoration: none; color: inherit;
 }
 .search-result-item:hover { background: var(--bg3); }
 .search-result-item i { color: var(--text3); font-size: 12px; flex-shrink: 0; }

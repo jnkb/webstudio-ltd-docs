@@ -486,6 +486,48 @@ function buildViewerUrl(pageId = '', options = {}) {
   return url.pathname + url.search + url.hash;
 }
 
+function buildPageHref(pageId = '') {
+  return buildViewerUrl(pageId);
+}
+
+function isPrimaryNavigationClick(event) {
+  return event.button === 0
+    && !event.defaultPrevented
+    && !event.metaKey
+    && !event.ctrlKey
+    && !event.shiftKey
+    && !event.altKey;
+}
+
+function bindViewerPageLinks(root = document) {
+  root.querySelectorAll('a[data-page-id]').forEach(link => {
+    if (link.dataset.navBound === '1') return;
+    link.dataset.navBound = '1';
+    link.addEventListener('click', event => {
+      if (!isPrimaryNavigationClick(event)) return;
+      event.preventDefault();
+
+      const pageId = link.dataset.pageId || '';
+      const targetSpaceId = link.dataset.spaceId || '';
+      const shouldCloseSearch = link.dataset.closeSearch === '1';
+      if (!pageId) return;
+
+      if (shouldCloseSearch) {
+        const searchInput = document.getElementById('search-input');
+        if (searchInput) searchInput.value = '';
+        closeSearchDD();
+      }
+
+      if (targetSpaceId && targetSpaceId !== S.currentSpaceId) {
+        S.currentSpaceId = targetSpaceId;
+        renderSpaces();
+      }
+
+      navigateTo(pageId);
+    });
+  });
+}
+
 function stripAccessTokenFromCurrentUrl() {
   if (!getAccessTokenFromUrl()) return;
   history.replaceState(history.state, '', buildViewerUrl(new URLSearchParams(window.location.search).get('page') || ''));
@@ -832,12 +874,26 @@ function renderSpaces() {
   if (!strip) return;
   strip.innerHTML = '';
   S.spaces.forEach(sp => {
-    const el = document.createElement('div');
+    const spacePageList = S.pages.filter(p => p.spaceId === sp.id);
+    const firstPage = spacePageList.find(p => !p.parentId) || spacePageList[0] || null;
+    const el = document.createElement('a');
     el.className = 'tab-item' + (sp.id === S.currentSpaceId ? ' active' : '');
     el.innerHTML = `<i class="fa-solid ${sp.icon || 'fa-book'}"></i><span>${esc(sp.name)}</span>`;
-    el.onclick = () => switchSpace(sp.id);
+    el.href = buildPageHref(firstPage?.id || '');
+    if (firstPage) {
+      el.dataset.pageId = firstPage.id;
+      el.dataset.spaceId = sp.id;
+    } else {
+      el.addEventListener('click', event => {
+        if (!isPrimaryNavigationClick(event)) return;
+        event.preventDefault();
+        switchSpace(sp.id);
+      });
+    }
     strip.appendChild(el);
   });
+
+  bindViewerPageLinks(strip);
 
   applySpaceTabsVisibility();
 }
@@ -892,16 +948,32 @@ function renderNavItem(page, container, depth, allPages) {
   item.style.paddingLeft = `${12 + depth * 16}px`;
   item.dataset.pageId = page.id;
 
-  const toggleHtml = children.length
-    ? `<div class="nav-toggle${isOpen ? ' open' : ''}" onclick="event.stopPropagation();toggleChildren(this,'${page.id}')"><i class="fa-solid fa-chevron-right"></i></div>`
-    : `<div class="nav-toggle-spacer"></div>`;
+  if (children.length) {
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'nav-toggle' + (isOpen ? ' open' : '');
+    toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    toggle.setAttribute('aria-controls', 'children-' + page.id);
+    toggle.setAttribute('aria-label', `Toggle ${page.title}`);
+    toggle.innerHTML = '<i class="fa-solid fa-chevron-right"></i>';
+    toggle.addEventListener('click', () => toggleChildren(toggle, page.id));
+    item.appendChild(toggle);
+  } else {
+    const spacer = document.createElement('div');
+    spacer.className = 'nav-toggle-spacer';
+    item.appendChild(spacer);
+  }
 
-  item.innerHTML = `
-    ${toggleHtml}
+  const link = document.createElement('a');
+  link.className = 'nav-link';
+  link.href = buildPageHref(page.id);
+  link.dataset.pageId = page.id;
+  link.innerHTML = `
     <span class="nav-ic"><i class="fa-solid ${page.icon || 'fa-file'}"></i></span>
     <span class="nav-label">${esc(page.title)}</span>
   `;
-  item.onclick = () => navigateTo(page.id);
+  item.appendChild(link);
+
   item.addEventListener('mouseenter', () => showHoverPreview(page.id, item));
   item.addEventListener('mouseleave', hideHoverPreview);
   wrap.appendChild(item);
@@ -914,10 +986,12 @@ function renderNavItem(page, container, depth, allPages) {
     wrap.appendChild(sub);
   }
   container.appendChild(wrap);
+  bindViewerPageLinks(wrap);
 }
 
 function toggleChildren(btn, pageId) {
   btn.classList.toggle('open');
+  btn.setAttribute('aria-expanded', btn.classList.contains('open') ? 'true' : 'false');
   const sub = document.getElementById('children-' + pageId);
   if (sub) sub.classList.toggle('open');
 }
@@ -1157,7 +1231,7 @@ function renderPage() {
     breadParts.push(`<i class="fa-solid fa-chevron-right"></i>`);
   }
   ancestors.forEach(a => {
-    breadParts.push(`<span onclick="navigateTo('${a.id}')">${esc(a.title)}</span>`);
+    breadParts.push(`<a href="${esc(buildPageHref(a.id))}" data-page-id="${esc(a.id)}">${esc(a.title)}</a>`);
     breadParts.push(`<i class="fa-solid fa-chevron-right"></i>`);
   });
   breadParts.push(`<span>${esc(page.title)}</span>`);
@@ -1185,6 +1259,7 @@ function renderPage() {
     <div id="page-nav-bottom"></div>
   `;
 
+  bindViewerPageLinks(view);
   updatePageNavBottom(page);
   enhanceCodeBlocks();
   updateTOC();
@@ -1242,15 +1317,16 @@ function updatePageNavBottom(page) {
 
   el.className = 'page-nav';
   el.innerHTML = `
-    ${prev ? `<div class="page-nav-card" onclick="navigateTo('${prev.id}')">
+    ${prev ? `<a class="page-nav-card" href="${esc(buildPageHref(prev.id))}" data-page-id="${esc(prev.id)}">
       <div class="page-nav-dir"><i class="fa-solid fa-arrow-left"></i> ${t('navPrev')}</div>
       <div class="page-nav-title"><i class="fa-solid ${prev.icon || 'fa-file'}"></i>${esc(prev.title)}</div>
-    </div>` : '<div></div>'}
-    ${next ? `<div class="page-nav-card right" onclick="navigateTo('${next.id}')">
+    </a>` : '<div></div>'}
+    ${next ? `<a class="page-nav-card right" href="${esc(buildPageHref(next.id))}" data-page-id="${esc(next.id)}">
       <div class="page-nav-dir">${t('navNext')} <i class="fa-solid fa-arrow-right"></i></div>
       <div class="page-nav-title"><i class="fa-solid ${next.icon || 'fa-file'}"></i>${esc(next.title)}</div>
-    </div>` : '<div></div>'}
+    </a>` : '<div></div>'}
   `;
+  bindViewerPageLinks(el);
 }
 
 // ════════════════════════════════════════
@@ -1366,16 +1442,17 @@ function handleSearch(q) {
       const titleHl = highlight(p.title, q);
       const subtitleHl = p.subtitle ? highlight(p.subtitle.slice(0, 60), q) : '';
       return `
-        <div class="search-result-item" onclick="selectSearch('${p.id}')">
+        <a class="search-result-item" href="${esc(buildPageHref(p.id))}" data-page-id="${esc(p.id)}" data-space-id="${esc(p.spaceId || '')}" data-close-search="1">
           <i class="fa-solid ${p.icon || 'fa-file'}"></i>
           <div style="min-width:0;flex:1">
             <div class="search-result-title">${titleHl}</div>
             ${subtitleHl ? `<div class="search-result-path">${subtitleHl}</div>` : ''}
             ${snippet ? `<div class="search-result-snippet">${snippet}</div>` : ''}
           </div>
-        </div>`;
+        </a>`;
     }).join('');
   }
+  bindViewerPageLinks(dd);
   dd.classList.add('open');
 }
 
