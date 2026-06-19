@@ -957,7 +957,6 @@ async function load() {
   } catch(e) {
     console.warn('Load error:', e);
   }
-  if (!S.spaces.length) await initDefaults();
 }
 
 async function loadPageContent(pageId) {
@@ -1080,22 +1079,6 @@ async function deletePagesFromServer(ids) {
 
 async function deletePageFromServer(id) {
   await deletePagesFromServer([id]);
-}
-
-async function initDefaults() {
-  const spaceId = uid();
-  S.spaces = [{ id: spaceId, name: t('defaultSpaceName'), icon: 'fa-book' }];
-  S.pages = [
-    { id: 'welcome', spaceId, parentId: null, title: t('defaultPage1Title'), icon: 'fa-house', subtitle: t('defaultPage1Subtitle'), section: t('defaultPage1Section'), order: 0, content: makeDefaultContent1(), _contentLoaded: true },
-    { id: 'installation', spaceId, parentId: null, title: t('defaultPage2Title'), icon: 'fa-terminal', subtitle: t('defaultPage2Subtitle'), section: t('defaultPage2Section'), order: 1, content: makeDefaultContent2(), _contentLoaded: true },
-    { id: 'writing-content', spaceId, parentId: null, title: t('defaultPage3Title'), icon: 'fa-pen', subtitle: t('defaultPage3Subtitle'), section: t('defaultPage3Section'), order: 2, content: makeDefaultContent3(), _contentLoaded: true },
-    { id: 'blocks-in-editor', spaceId, parentId: 'writing-content', title: t('defaultPage4Title'), icon: 'fa-cube', subtitle: '', section: null, order: 0, content: { blocks: [] }, _contentLoaded: true },
-  ];
-  S.currentSpaceId = spaceId;
-  S.currentPageId = 'welcome';
-  // Ulož defaults na server
-  await save();
-  for (const p of S.pages) await savePageToServer(p);
 }
 
 function uid() { return '_' + Math.random().toString(36).slice(2,10); }
@@ -4207,50 +4190,6 @@ document.addEventListener('keydown', e => {
 });
 
 // ════════════════════════════════════════
-//  DEFAULT CONTENT
-// ════════════════════════════════════════
-function makeDefaultContent1() {
-  return {"time":Date.now(),"blocks":[
-    {"type":"header","data":{"text":"Getting started","level":2}},
-    {"type":"paragraph","data":{"text":"Welcome to your self-hosted documentation platform. Click <b>Edit mode</b> in the top right to start writing content."}},
-    {"type":"warning","data":{"title":"Tip","message":"Use the ⊕ button in the editor to insert blocks — headings, code, tables, lists, and more."}},
-    {"type":"header","data":{"text":"What you can do","level":2}},
-    {"type":"list","data":{"style":"unordered","items":[
-      {"content":"Create pages and subpages in a tree structure","items":[]},
-      {"content":"Organize content into sections and spaces","items":[]},
-      {"content":"Upload your own logo and customize the accent color","items":[]},
-      {"content":"Everything is saved as JSON files on your server","items":[]}
-    ]}},
-    {"type":"delimiter","data":{}},
-    {"type":"paragraph","data":{"text":"All changes are automatically saved to the server as JSON files. Images are stored in the images/ directory."}}
-  ]};
-}
-function makeDefaultContent2() {
-  return {"time":Date.now(),"blocks":[
-    {"type":"header","data":{"text":"Deploy to your own domain","level":2}},
-    {"type":"paragraph","data":{"text":"Upload index.html, index.php, api.php, and auth.php to any PHP hosting. No database required — everything is stored as JSON files."}},
-    {"type":"header","data":{"text":"Requirements","level":3}},
-    {"type":"list","data":{"style":"unordered","items":[
-      {"content":"<b>PHP 7.4+</b> — any standard hosting works","items":[]},
-      {"content":"<b>Write permissions</b> — for the data/ and images/ directories","items":[]},
-      {"content":"<b>No database</b> — all data is stored in JSON files","items":[]}
-    ]}},
-    {"type":"header","data":{"text":"Quick start","level":3}},
-    {"type":"code","data":{"code":"# 1. Upload all files to your server\n# 2. Open the URL in your browser\n# 3. Set your admin password on first run\n# 4. Start writing!"}},
-    {"type":"paragraph","data":{"text":"Point your custom domain or subdomain (e.g. docs.yourdomain.com) to the directory where you uploaded the files."}}
-  ]};
-}
-function makeDefaultContent3() {
-  return {"time":Date.now(),"blocks":[
-    {"type":"header","data":{"text":"Block types","level":2}},
-    {"type":"paragraph","data":{"text":"The editor supports various content types. Click ⊕ or type / to see all available blocks."}},
-    {"type":"table","data":{"withHeadings":true,"content":[["Block","Description","Shortcut"],["Heading","H1, H2, H3","# ## ###"],["List","Bulleted or numbered","- or 1."],["Code","Code block with syntax","```"],["Quote","Highlighted quotation",""],["Callout","Info/warning/tip box",""],["Checklist","Checkable items",""],["Delimiter","Section divider","---"],["Table","Table with headers",""],["Cards","Card grid with icons",""],["Timeline","Changelog timeline",""]]}},
-    {"type":"quote","data":{"text":"Good documentation is the foundation of every project.","caption":"— Developer wisdom"}},
-    {"type":"checklist","data":{"items":[{"text":"Create your first page","checked":true},{"text":"Upload logo and set accent color","checked":false},{"text":"Add content using blocks","checked":false}]}}
-  ]};
-}
-
-// ════════════════════════════════════════
 //  AUTH — PHP backend (auth.php)
 // ════════════════════════════════════════
 /*
@@ -4523,9 +4462,16 @@ async function submitSetup() {
     if (d.ok && d.authed) {
       S.authed = true;
       S.needsSetup = false;
+      await load();
+      S.currentSpaceId = S.spaces[0]?.id || null;
+      const pages = spacePages();
+      S.currentPageId = pages.find(p => !p.parentId)?.id || pages[0]?.id || null;
+      if (S.currentPageId) await loadPageContent(S.currentPageId);
       document.getElementById('setup-overlay').classList.remove('open');
       updateAdminUI();
       renderSpaces();
+      renderNav();
+      renderPage();
       await refreshCurrentPageRatings(true);
       showToast(t('btnLoggedIn') + ' ✓');
     } else {
