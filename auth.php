@@ -14,7 +14,7 @@ require __DIR__ . '/access_guard.php';
  * On first run, the setup wizard in index.html will prompt for a password.
  */
 
-define('SESSION_NAME', 'docs_auth');
+define('SESSION_NAME', 'docs_auth_' . DOCS_INSTANCE_HASH);
 define('SESSION_LIFETIME', 3600 * 8); // 8 hours
 define('DATA_DIR', __DIR__ . '/data');
 define('AUTH_FILE', DATA_DIR . '/auth.json');

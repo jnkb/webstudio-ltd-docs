@@ -20,7 +20,7 @@ define('PAGES_TRASH_DIR', __DIR__ . '/data/trash/pages');
 define('IMAGES_DIR',      __DIR__ . '/images');
 
 // ── Session / auth (same as auth.php) ──
-define('SESSION_NAME', 'docs_auth');
+define('SESSION_NAME', 'docs_auth_' . DOCS_INSTANCE_HASH);
 session_name(SESSION_NAME);
 session_set_cookie_params([
     'lifetime' => 3600 * 8,

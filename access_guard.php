@@ -5,11 +5,14 @@ if (defined('WEBSTUDIO_DOCS_ACCESS_GUARD_LOADED')) {
 }
 
 define('WEBSTUDIO_DOCS_ACCESS_GUARD_LOADED', true);
+// Short, stable hash of the install directory so multiple instances on the
+// same domain (different subdirectories) don't share cookies/sessions.
+define('DOCS_INSTANCE_HASH', substr(hash('sha256', __DIR__), 0, 8));
 if (PHP_SAPI === 'cli') {
     return;
 }
 
-define('DOCS_ACCESS_COOKIE_NAME', 'docs_access_pass');
+define('DOCS_ACCESS_COOKIE_NAME', 'docs_access_pass_' . DOCS_INSTANCE_HASH);
 define('DOCS_ACCESS_COOKIE_TTL', 3600 * 24 * 30);
 define('DOCS_ACCESS_KEY_FILE', __DIR__ . '/data/access_key.txt');
 define('DOCS_ACCESS_QUERY_PARAM', 'token');
