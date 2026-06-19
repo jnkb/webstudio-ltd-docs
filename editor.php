@@ -626,6 +626,15 @@ $_ogData = (function() {
       <div class="settings-section-label" data-i18n="settingsPassword">Password</div>
       <div class="settings-row">
         <div>
+          <div class="settings-row-label" data-i18n="settingsChangePassword">Change password</div>
+          <div class="settings-row-sub" data-i18n="settingsChangePasswordSub">Update your admin password</div>
+        </div>
+        <button class="btn btn-ghost" onclick="openChangePassword()" style="font-size:12px">
+          <i class="fa-solid fa-key"></i> <span data-i18n="btnChangePassword">Change</span>
+        </button>
+      </div>
+      <div class="settings-row">
+        <div>
           <div class="settings-row-sub"><span data-i18n="settingsPasswordNote">Password is securely stored (bcrypt)</span></div>
         </div>
         <button class="btn btn-ghost" onclick="handleLogout()" style="font-size:12px;color:#ef4444;border-color:rgba(239,68,68,0.3)">
@@ -701,6 +710,66 @@ $_ogData = (function() {
       <button class="btn btn-primary" onclick="submitPin()" id="auth-submit-btn" data-i18n="authLogin">Log in</button>
     </div>
     <div class="auth-hint" id="auth-hint"></div>
+  </div>
+</div>
+
+<!-- CHANGE PASSWORD OVERLAY -->
+<div class="auth-overlay" id="change-pw-overlay">
+  <div class="setup-box">
+    <div class="setup-icon"><i class="fa-solid fa-key"></i></div>
+    <div class="setup-title" data-i18n="changePwTitle">Change password</div>
+    <div class="setup-sub" data-i18n="changePwSubtitle">Enter your current password and choose a new one.</div>
+
+    <div class="setup-field">
+      <label data-i18n="changePwCurrent">Current password</label>
+      <div class="setup-pw-wrap">
+        <input type="password" id="change-pw-current" class="field-input" autocomplete="current-password"
+          onkeydown="if(event.key==='Enter')document.getElementById('change-pw-new').focus()">
+        <button class="pw-toggle" onclick="toggleSetupVis('change-pw-current', this)" type="button">
+          <i class="fa-solid fa-eye"></i>
+        </button>
+      </div>
+    </div>
+
+    <div class="setup-field">
+      <label data-i18n="changePwNew">New password</label>
+      <div class="setup-pw-wrap">
+        <input type="password" id="change-pw-new" class="field-input" autocomplete="new-password"
+          oninput="validateChangePassword()" onkeydown="if(event.key==='Enter')document.getElementById('change-pw-confirm').focus()">
+        <button class="pw-toggle" onclick="toggleSetupVis('change-pw-new', this)" type="button">
+          <i class="fa-solid fa-eye"></i>
+        </button>
+      </div>
+    </div>
+
+    <div class="setup-field">
+      <label data-i18n="changePwConfirm">Confirm new password</label>
+      <div class="setup-pw-wrap">
+        <input type="password" id="change-pw-confirm" class="field-input" autocomplete="new-password"
+          oninput="validateChangePassword()" onkeydown="if(event.key==='Enter')submitChangePassword()">
+        <button class="pw-toggle" onclick="toggleSetupVis('change-pw-confirm', this)" type="button">
+          <i class="fa-solid fa-eye"></i>
+        </button>
+      </div>
+    </div>
+
+    <div class="setup-rules" id="change-pw-rules">
+      <div class="setup-rule fail" id="cpw-rule-length"><i class="fa-solid fa-circle"></i> <span data-i18n="setupMinLength">At least 8 characters</span></div>
+      <div class="setup-rule fail" id="cpw-rule-upper"><i class="fa-solid fa-circle"></i> <span data-i18n="setupUppercase">Uppercase letter</span></div>
+      <div class="setup-rule fail" id="cpw-rule-lower"><i class="fa-solid fa-circle"></i> <span data-i18n="setupLowercase">Lowercase letter</span></div>
+      <div class="setup-rule fail" id="cpw-rule-number"><i class="fa-solid fa-circle"></i> <span data-i18n="setupNumber">Number</span></div>
+      <div class="setup-rule fail" id="cpw-rule-special"><i class="fa-solid fa-circle"></i> <span data-i18n="setupSpecial">Special character (!@#$...)</span></div>
+      <div class="setup-rule fail" id="cpw-rule-match"><i class="fa-solid fa-circle"></i> <span data-i18n="setupMatch">Passwords match</span></div>
+    </div>
+
+    <div class="setup-error" id="change-pw-error"></div>
+
+    <div class="auth-actions">
+      <button class="btn btn-ghost" onclick="closeChangePassword()" data-i18n="btnCancel">Cancel</button>
+      <button class="btn btn-primary" id="change-pw-btn" onclick="submitChangePassword()" disabled>
+        <i class="fa-solid fa-key"></i> <span data-i18n="changePwBtn">Update password</span>
+      </button>
+    </div>
   </div>
 </div>
 
@@ -3996,6 +4065,7 @@ document.addEventListener('keydown', e => {
     closeSettings();
     closeSearchDD();
     closeIconPickerEl();
+    closeChangePassword();
   }
 });
 
@@ -4330,6 +4400,110 @@ async function submitSetup() {
     errEl.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ${t('setupError')}`;
     btn.disabled = false;
     btn.innerHTML = `<i class="fa-solid fa-lock"></i> <span>${t('setupBtn')}</span>`;
+  }
+}
+
+// ════════════════════════════════════════
+//  CHANGE PASSWORD (logged-in)
+// ════════════════════════════════════════
+function openChangePassword() {
+  if (!S.authed) return;
+  ['change-pw-current', 'change-pw-new', 'change-pw-confirm'].forEach(id => {
+    const inp = document.getElementById(id);
+    if (inp) inp.type = 'password';
+  });
+  document.getElementById('change-pw-current').value = '';
+  document.getElementById('change-pw-new').value = '';
+  document.getElementById('change-pw-confirm').value = '';
+  document.getElementById('change-pw-error').innerHTML = '';
+  document.querySelectorAll('#change-pw-overlay .pw-toggle i').forEach(i => i.className = 'fa-solid fa-eye');
+  applyTranslations();
+  validateChangePassword();
+  closeSettings();
+  document.getElementById('change-pw-overlay').classList.add('open');
+  setTimeout(() => document.getElementById('change-pw-current').focus(), 80);
+}
+
+function closeChangePassword() {
+  document.getElementById('change-pw-overlay').classList.remove('open');
+}
+
+function validateChangePassword() {
+  const pw = document.getElementById('change-pw-new').value;
+  const pw2 = document.getElementById('change-pw-confirm').value;
+
+  const rules = {
+    length:  pw.length >= 8,
+    upper:   /[A-Z]/.test(pw),
+    lower:   /[a-z]/.test(pw),
+    number:  /[0-9]/.test(pw),
+    special: /[^A-Za-z0-9]/.test(pw),
+    match:   pw.length > 0 && pw === pw2,
+  };
+
+  Object.entries(rules).forEach(([key, pass]) => {
+    const el = document.getElementById('cpw-rule-' + key);
+    if (!el) return;
+    el.className = 'setup-rule ' + (pass ? 'pass' : 'fail');
+    el.querySelector('i').className = pass ? 'fa-solid fa-circle-check' : 'fa-solid fa-circle';
+  });
+
+  const matchEl = document.getElementById('cpw-rule-match');
+  if (pw2.length > 0 && !rules.match) {
+    matchEl.querySelector('span').textContent = t('setupMismatch');
+    matchEl.className = 'setup-rule fail';
+    matchEl.querySelector('i').className = 'fa-solid fa-circle-xmark';
+    matchEl.style.color = '#ef4444';
+    matchEl.querySelector('i').style.color = '#ef4444';
+  } else {
+    matchEl.querySelector('span').textContent = t('setupMatch');
+    matchEl.style.color = '';
+    matchEl.querySelector('i').style.color = '';
+  }
+
+  const allPass = Object.values(rules).every(Boolean);
+  document.getElementById('change-pw-btn').disabled = !allPass;
+  return allPass;
+}
+
+async function submitChangePassword() {
+  if (!validateChangePassword()) return;
+
+  const current = document.getElementById('change-pw-current').value;
+  const newPw = document.getElementById('change-pw-new').value;
+  const errEl = document.getElementById('change-pw-error');
+  const btn = document.getElementById('change-pw-btn');
+
+  if (!current) {
+    errEl.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ${t('changePwEnterCurrent')}`;
+    document.getElementById('change-pw-current').focus();
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>${t('changePwSaving')}</span>`;
+  errEl.innerHTML = '';
+
+  try {
+    const fd = new FormData();
+    fd.append('action', 'change_password');
+    fd.append('current_password', current);
+    fd.append('new_password', newPw);
+    const r = await fetch('auth.php', { method: 'POST', credentials: 'same-origin', body: fd });
+    const d = await r.json();
+
+    if (d.ok) {
+      closeChangePassword();
+      showToast(t('changePwSuccess'));
+    } else {
+      errEl.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ${d.error || t('changePwError')}`;
+      btn.disabled = false;
+      btn.innerHTML = `<i class="fa-solid fa-key"></i> <span>${t('changePwBtn')}</span>`;
+    }
+  } catch(e) {
+    errEl.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ${t('changePwError')}`;
+    btn.disabled = false;
+    btn.innerHTML = `<i class="fa-solid fa-key"></i> <span>${t('changePwBtn')}</span>`;
   }
 }
 

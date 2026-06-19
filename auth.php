@@ -169,6 +169,60 @@ switch ($action) {
         }
         break;
 
+    // ── Change password (requires active session) ──
+    case 'change_password':
+        if (empty($_SESSION['authed'])) {
+            http_response_code(401);
+            echo json_encode(['ok' => false, 'error' => 'Not authenticated']);
+            break;
+        }
+
+        if (!isSetupComplete()) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => 'Setup not completed']);
+            break;
+        }
+
+        $current = $_POST['current_password'] ?? '';
+        $new     = $_POST['new_password'] ?? '';
+
+        $hash = getPasswordHash();
+        if (!$hash || !password_verify($current, $hash)) {
+            http_response_code(401);
+            echo json_encode(['ok' => false, 'error' => 'Current password is incorrect']);
+            break;
+        }
+
+        if (strlen($new) < 8) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => 'Password must be at least 8 characters']);
+            break;
+        }
+
+        if (password_verify($new, $hash)) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => 'New password must differ from the current one']);
+            break;
+        }
+
+        $authData = getAuthData();
+        $authData['passwordHash'] = password_hash($new, PASSWORD_BCRYPT, ['cost' => 12]);
+        $authData['updatedAt'] = date('c');
+
+        if (file_put_contents(AUTH_FILE, json_encode($authData, JSON_PRETTY_PRINT)) === false) {
+            http_response_code(500);
+            echo json_encode(['ok' => false, 'error' => 'Failed to save new password']);
+            break;
+        }
+
+        // Keep the user logged in and rotate the session id
+        $_SESSION['authed'] = true;
+        $_SESSION['authed_at'] = time();
+        session_regenerate_id(true);
+
+        echo json_encode(['ok' => true]);
+        break;
+
     // ── Logout ──
     case 'logout':
         $_SESSION = [];
