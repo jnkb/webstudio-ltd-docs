@@ -3005,13 +3005,102 @@ async function initEditor(page) {
       updateTOC();
       initScrollSpy();
       injectCodeCopyButtons();
+      initImagePasteHandler();
     },
   });
 
   try { await editor.isReady; } catch(e) {}
+  // Bind paste handler also after isReady resolves (fallback in case onReady didn't fire)
+  initImagePasteHandler();
   hideSaveBar();
   undoStack.length = 0; redoStack.length = 0;
   setTimeout(() => { editor._wsReady = true; pushUndoSnapshot(); updateUndoRedoBtns(); }, 600);
+}
+
+// ════════════════════════════════════════
+//  IMAGE PASTE HANDLER (Ctrl/Cmd+V in editor)
+// ════════════════════════════════════════
+let _imagePasteHandlerBound = false;
+
+function initImagePasteHandler() {
+  if (_imagePasteHandlerBound) return;
+  _imagePasteHandlerBound = true;
+
+  const holder = document.getElementById('editor');
+
+  // Bind on the editor holder (capture phase)
+  if (holder) {
+    holder.addEventListener('paste', onEditorPaste, true);
+  }
+
+  // Also bind on document (capture) so we can detect paste events even if
+  // EditorJS or some other layer stops propagation on the holder.
+  document.addEventListener('paste', onEditorPaste, true);
+}
+
+async function onEditorPaste(e) {
+  if (!editor || !S.editMode) return;
+
+  const items = e.clipboardData?.items;
+  if (!items || !items.length) return;
+
+  // Find first image item in clipboard
+  let imageFile = null;
+  for (const it of items) {
+    if (it.kind === 'file' && it.type && it.type.startsWith('image/')) {
+      imageFile = it.getAsFile();
+      if (imageFile) break;
+    }
+  }
+  if (!imageFile) return;
+
+  // Only handle paste when an editor block is focused (cursor inside editor)
+  const sel = window.getSelection();
+  if (!sel || !sel.anchorNode) return;
+  const editorEl = document.getElementById('editor');
+  if (!editorEl || !editorEl.contains(sel.anchorNode)) return;
+
+  // Prevent default text/HTML paste behaviour for images
+  e.preventDefault();
+  e.stopPropagation();
+
+  await insertPastedImageBlock(imageFile);
+}
+
+async function uploadImageFile(file) {
+  const fd = new FormData();
+  fd.append('image', file);
+  const r = await fetch('api.php?action=upload_image', {
+    method: 'POST', credentials: 'same-origin', body: fd
+  });
+  const d = await parseApiJsonResponse(r);
+  if (!d.ok) throw new Error(d.error || 'upload failed');
+  return { url: d.url, filename: d.filename };
+}
+
+async function insertPastedImageBlock(file) {
+  showToast(t('imagePasteUploading'));
+  try {
+    const { url, filename } = await uploadImageFile(file);
+
+    // Insert a new image block after the current one with the uploaded URL
+    const currentIdx = Math.max(editor.blocks.getCurrentBlockIndex(), 0);
+    const insertIdx = Math.min(currentIdx + 1, editor.blocks.getBlocksCount());
+    editor.blocks.insert(
+      'image',
+      { url, caption: '', filename, stretched: false, withBorder: false, withBackground: false },
+      undefined,
+      insertIdx,
+      true
+    );
+
+    requestAnimationFrame(() => editor?.caret?.setToBlock?.(insertIdx));
+    markDirty();
+    scheduleUndoSnapshot();
+  } catch (err) {
+    console.error('[imagePaste] insertPastedImageBlock failed', err);
+    showToast(t('imagePasteFailed'));
+  }
 }
 
 // ════════════════════════════════════════
