@@ -874,7 +874,7 @@ function renderSpaces() {
   strip.innerHTML = '';
   S.spaces.forEach(sp => {
     const spacePageList = S.pages.filter(p => p.spaceId === sp.id);
-    const firstPage = spacePageList.find(p => !p.parentId) || spacePageList[0] || null;
+    const firstPage = firstRootPage(spacePageList);
     const el = document.createElement('a');
     el.className = 'tab-item' + (sp.id === S.currentSpaceId ? ' active' : '');
     el.innerHTML = `<i class="fa-solid ${sp.icon || 'fa-book'}"></i><span>${esc(sp.name)}</span>`;
@@ -900,7 +900,7 @@ function renderSpaces() {
 function switchSpace(id) {
   S.currentSpaceId = id;
   const pages = spacePages();
-  const first = pages.find(p => !p.parentId) || pages[0];
+  const first = firstRootPage(pages);
   renderSpaces();
   renderNav();
   if (first) navigateTo(first.id);
@@ -909,6 +909,12 @@ function switchSpace(id) {
 
 function spacePages() {
   return S.pages.filter(p => p.spaceId === S.currentSpaceId);
+}
+
+// First page as it appears at the top of the sidebar nav:
+// lowest-order root page of the given list (mirrors renderNav() sorting).
+function firstRootPage(pages) {
+  return pages.filter(p => !p.parentId).sort((a, b) => (a.order || 0) - (b.order || 0))[0] || pages[0] || null;
 }
 
 function renderNav() {
@@ -1811,7 +1817,7 @@ document.addEventListener('keydown', e => {
         S.currentPageId = targetPageId;
       } else {
         const sp = spacePages();
-        S.currentPageId = sp.find(p => !p.parentId)?.id || sp[0]?.id || null;
+        S.currentPageId = firstRootPage(sp)?.id || null;
       }
 
       if (S.currentPageId) await loadPageContent(S.currentPageId);

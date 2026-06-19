@@ -1478,7 +1478,7 @@ function renderSpaces() {
 
   S.spaces.forEach((sp, idx) => {
     const spacePageList = S.pages.filter(p => p.spaceId === sp.id);
-    const firstPage = spacePageList.find(p => !p.parentId) || spacePageList[0] || null;
+    const firstPage = firstRootPage(spacePageList);
     const el = document.createElement('div');
     el.className = 'tab-item' + (sp.id === S.currentSpaceId ? ' active' : '');
 
@@ -1660,7 +1660,7 @@ async function deleteSpace(id) {
       S.spaces = S.spaces.filter(s => s.id !== id);
       if (S.currentSpaceId === id) {
         S.currentSpaceId = S.spaces[0].id;
-        S.currentPageId = S.pages.find(p => p.spaceId === S.currentSpaceId)?.id || null;
+        S.currentPageId = firstRootPage(S.pages.filter(p => p.spaceId === S.currentSpaceId))?.id || null;
       }
       await save();
       renderSpaces(); renderNav(); renderPage();
@@ -1674,7 +1674,7 @@ function switchSpace(id) {
   S.currentSpaceId = id;
   S.editMode = false;
   const pages = spacePages();
-  S.currentPageId = pages.find(p => !p.parentId)?.id || pages[0]?.id || null;
+  S.currentPageId = firstRootPage(pages)?.id || null;
   renderSpaces(); renderNav(); renderPage();
   syncEditUI();
 }
@@ -1696,6 +1696,12 @@ async function addSpace() {
 
 function spacePages() {
   return S.pages.filter(p => p.spaceId === S.currentSpaceId);
+}
+
+// First page as it appears at the top of the sidebar nav:
+// lowest-order root page of the given list (mirrors renderNav() sorting).
+function firstRootPage(pages) {
+  return pages.filter(p => !p.parentId).sort((a, b) => (a.order || 0) - (b.order || 0))[0] || pages[0] || null;
 }
 
 // ════════════════════════════════════════
@@ -4503,7 +4509,7 @@ async function submitSetup() {
       await load();
       S.currentSpaceId = S.spaces[0]?.id || null;
       const pages = spacePages();
-      S.currentPageId = pages.find(p => !p.parentId)?.id || pages[0]?.id || null;
+      S.currentPageId = firstRootPage(pages)?.id || null;
       if (S.currentPageId) await loadPageContent(S.currentPageId);
       document.getElementById('setup-overlay').classList.remove('open');
       updateAdminUI();
@@ -4734,7 +4740,7 @@ document.addEventListener('click', e => {
       } else {
         // Always pick first root page of current space on load
         const sp = spacePages();
-        S.currentPageId = sp.find(p => !p.parentId)?.id || sp[0]?.id || null;
+        S.currentPageId = firstRootPage(sp)?.id || null;
       }
 
       if (S.currentPageId) await loadPageContent(S.currentPageId);
