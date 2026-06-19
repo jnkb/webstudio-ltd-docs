@@ -33,7 +33,7 @@ $_ogData = (function() {
         $spaces = $readJson($dataDir . '/spaces.json') ?? [];
         if (!empty($spaces)) {
             $sid = $spaces[0]['id'] ?? '';
-            foreach (glob($pagesDir . '/*.json') as $f) {
+            foreach (glob($pagesDir . '/*.json') ?: [] as $f) {
                 $p = $readJson($f);
                 if ($p && ($p['spaceId'] ?? '') === $sid && empty($p['parentId'])) {
                     if (!$page || ($p['order'] ?? 0) < ($page['order'] ?? 0)) $page = $p;
@@ -136,7 +136,6 @@ $_ogData = (function() {
             }
 
             imagepng($img, $cache, 0);
-            imagedestroy($img);
         }
         if (file_exists($cache)) {
             $proto = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
