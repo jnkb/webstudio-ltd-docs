@@ -13,9 +13,11 @@ require __DIR__ . '/access_guard.php';
  */
 
 // ── Configuration ──────────────────────────
-define('DATA_DIR',   __DIR__ . '/data');
-define('PAGES_DIR',  __DIR__ . '/data/pages');
-define('IMAGES_DIR', __DIR__ . '/images');
+define('DATA_DIR',        __DIR__ . '/data');
+define('PAGES_DIR',       __DIR__ . '/data/pages');
+define('TRASH_DIR',       __DIR__ . '/data/trash');
+define('PAGES_TRASH_DIR', __DIR__ . '/data/trash/pages');
+define('IMAGES_DIR',      __DIR__ . '/images');
 
 // ── Session / auth (same as auth.php) ──
 define('SESSION_NAME', 'docs_auth');
@@ -39,7 +41,7 @@ $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
 // ── Helper functions ────────────────────────
 function ensureDirs() {
-    foreach ([DATA_DIR, PAGES_DIR, IMAGES_DIR] as $dir) {
+    foreach ([DATA_DIR, PAGES_DIR, TRASH_DIR, PAGES_TRASH_DIR, IMAGES_DIR] as $dir) {
         if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {
             err('Failed to initialize storage directories', 500);
         }
@@ -53,6 +55,15 @@ function ensureDirs() {
     }
     // Also add index.php to prevent directory listing as fallback
     $index = DATA_DIR . '/index.php';
+    if (!file_exists($index)) {
+        if (@file_put_contents($index, "<?php http_response_code(403); exit('Forbidden');") === false) {
+            err('Failed to protect the data directory', 500);
+        }
+    }
+}
+
+function ensureProtectedDirectoryIndex($dir) {
+    $index = rtrim($dir, '/\\') . '/index.php';
     if (!file_exists($index)) {
         if (@file_put_contents($index, "<?php http_response_code(403); exit('Forbidden');") === false) {
             err('Failed to protect the data directory', 500);
@@ -142,9 +153,73 @@ function pageRatingSummaryPath($id) {
     return PAGES_DIR . "/{$id}_rating.json";
 }
 
-function deletePageArtifacts($id) {
+function sanitizePageId($id) {
+    return preg_replace('/[^a-zA-Z0-9_-]/', '', (string)$id);
+}
+
+function sanitizePageIds($ids) {
+    if (!is_array($ids)) return [];
+
+    $clean = [];
+    $seen = [];
+    foreach ($ids as $rawId) {
+        $id = sanitizePageId($rawId);
+        if ($id === '' || isset($seen[$id])) continue;
+        $seen[$id] = true;
+        $clean[] = $id;
+    }
+
+    return $clean;
+}
+
+function buildTrashTargetPath($filename) {
+    $target = PAGES_TRASH_DIR . '/' . $filename;
+    if (!file_exists($target)) return $target;
+
+    $info = pathinfo($filename);
+    $name = $info['filename'] ?? $filename;
+    $ext = isset($info['extension']) ? '.' . $info['extension'] : '';
+    $suffix = 2;
+
+    do {
+        $target = PAGES_TRASH_DIR . '/' . $name . '__dup' . $suffix . $ext;
+        $suffix++;
+    } while (file_exists($target));
+
+    return $target;
+}
+
+function moveDeletedArtifactToTrash($path, $batchPrefix, $pageCounter = null) {
+    if (!is_file($path)) return;
+
+    $prefix = $batchPrefix;
+    if ($pageCounter !== null) {
+        $prefix .= '_' . str_pad((string)$pageCounter, 3, '0', STR_PAD_LEFT);
+    }
+
+    $targetPath = buildTrashTargetPath($prefix . '_' . basename($path));
+    if (@rename($path, $targetPath)) return;
+
+    if (!@copy($path, $targetPath) || !@unlink($path)) {
+        err('Failed to move deleted page files to trash', 500);
+    }
+}
+
+function trashPageArtifacts($id, $batchPrefix, $pageCounter = null) {
     foreach ([pageFilePath($id), pageRatingsPath($id), pageRatingSummaryPath($id)] as $path) {
-        if (file_exists($path)) unlink($path);
+        moveDeletedArtifactToTrash($path, $batchPrefix, $pageCounter);
+    }
+}
+
+function trashPagesById($ids) {
+    $pageIds = sanitizePageIds($ids);
+    if (!$pageIds) return;
+
+    $batchPrefix = date('Y-m-d_H-i-s');
+    $useCounter = count($pageIds) > 1;
+
+    foreach (array_values($pageIds) as $index => $id) {
+        trashPageArtifacts($id, $batchPrefix, $useCounter ? $index + 1 : null);
     }
 }
 
@@ -286,6 +361,8 @@ function requireAuth() {
 }
 
 ensureDirs();
+ensureProtectedDirectoryIndex(TRASH_DIR);
+ensureProtectedDirectoryIndex(PAGES_TRASH_DIR);
 
 // ════════════════════════════════════════════
 switch ($action) {
@@ -378,7 +455,7 @@ case 'save_page':
     $body = json_decode(file_get_contents('php://input'), true);
     $page = $body['page'] ?? null;
     if (!$page || empty($page['id'])) err('Missing page or id');
-    $id = preg_replace('/[^a-zA-Z0-9_-]/', '', $page['id']);
+    $id = sanitizePageId($page['id']);
     jsonWrite(pageFilePath($id), $page);
     ok();
 
@@ -394,16 +471,18 @@ case 'save_pages':
     foreach (pageJsonFiles() as $f) {
         $existingIds[] = basename($f, '.json');
     }
-    $newIds = array_column($pages, 'id');
+    $newIds = sanitizePageIds(array_column($pages, 'id'));
+    $removedIds = [];
     foreach ($existingIds as $eid) {
-        if (!in_array($eid, $newIds)) {
-            deletePageArtifacts($eid);
+        if (!in_array($eid, $newIds, true)) {
+            $removedIds[] = $eid;
         }
     }
+    trashPagesById($removedIds);
     // Save each page
     foreach ($pages as $page) {
         if (empty($page['id'])) continue;
-        $id = preg_replace('/[^a-zA-Z0-9_-]/', '', $page['id']);
+        $id = sanitizePageId($page['id']);
         jsonWrite(pageFilePath($id), $page);
     }
     ok();
@@ -412,10 +491,11 @@ case 'save_pages':
 case 'delete_page':
     requireAuth();
     $body = json_decode(file_get_contents('php://input'), true);
-    $id = preg_replace('/[^a-zA-Z0-9_-]/', '', $body['id'] ?? '');
-    if (!$id) err('Missing id');
-    deletePageArtifacts($id);
-    ok();
+    $ids = isset($body['ids']) && is_array($body['ids']) ? $body['ids'] : [$body['id'] ?? ''];
+    $pageIds = sanitizePageIds($ids);
+    if (!$pageIds) err('Missing id');
+    trashPagesById($pageIds);
+    ok(['deleted' => count($pageIds)]);
 
 // ── UPLOAD IMAGE ──
 case 'upload_image':

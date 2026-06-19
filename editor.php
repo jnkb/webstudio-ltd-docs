@@ -1060,14 +1060,27 @@ async function savePageToServer(page) {
   } catch(e) { console.warn('Save page error:', e); }
 }
 
-async function deletePageFromServer(id) {
+async function deletePagesFromServer(ids) {
+  const pageIds = (Array.isArray(ids) ? ids : [ids])
+    .map(id => String(id || '').trim())
+    .filter(Boolean);
+  if (!pageIds.length) return;
+
+  const body = pageIds.length === 1
+    ? { id: pageIds[0] }
+    : { ids: pageIds };
+
   try {
     await fetch('api.php?action=delete_page', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id })
+      body: JSON.stringify(body)
     });
   } catch(e) {}
+}
+
+async function deletePageFromServer(id) {
+  await deletePagesFromServer([id]);
 }
 
 async function initDefaults() {
@@ -1622,7 +1635,7 @@ async function deleteSpace(id) {
     okLabel: t('confirmDeleteOk'), okClass: 'btn-danger',
     onOk: async () => {
       const pageIds = S.pages.filter(p => p.spaceId === id).map(p => p.id);
-      for (const pid of pageIds) await deletePageFromServer(pid);
+      await deletePagesFromServer(pageIds);
       S.pages = S.pages.filter(p => p.spaceId !== id);
       S.spaces = S.spaces.filter(s => s.id !== id);
       if (S.currentSpaceId === id) {
@@ -3705,7 +3718,7 @@ async function deletePage(id) {
     onOk: async () => {
       const toRemove = collectDescendants(id);
       S.pages = S.pages.filter(p => !toRemove.has(p.id));
-      for (const rid of toRemove) await deletePageFromServer(rid);
+      await deletePagesFromServer(Array.from(toRemove));
       await save();
       if (toRemove.has(S.currentPageId)) {
         S.currentPageId = spacePages()[0]?.id || null;
