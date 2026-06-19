@@ -597,6 +597,13 @@ $_ogData = (function() {
       </div>
       <div class="settings-row">
         <div>
+          <div class="settings-row-label" data-i18n="settingsHideSingleSpaceTabs">Hide space tabs for one space</div>
+          <div class="settings-row-sub" data-i18n="settingsHideSingleSpaceTabsSub">Hide the top space switcher when only one space exists</div>
+        </div>
+        <button class="toggle" id="hide-single-space-tabs-toggle" onclick="toggleHideSingleSpaceTabs()"></button>
+      </div>
+      <div class="settings-row">
+        <div>
           <div class="settings-row-label" data-i18n="settingsShareSection">Share section</div>
           <div class="settings-row-sub" data-i18n="settingsShareSectionSub">Show the share block in the page sidebar</div>
         </div>
@@ -902,6 +909,7 @@ let S = {
     faviconDataUrl: null,
     tabTitle: 'Docs',
     lang: DEFAULT_INTERFACE_LANG,
+    hideSingleSpaceTabs: false,
     shareSectionEnabled: true,
     translateEnabled: true,
   }
@@ -1180,10 +1188,15 @@ function applySettings() {
   const shareSectionToggle = document.getElementById('share-section-toggle');
   if (shareSectionToggle) shareSectionToggle.className = 'toggle ' + (isShareSectionEnabled() ? 'on' : '');
 
+  // single-space tabs toggle sync
+  const hideSingleSpaceTabsToggle = document.getElementById('hide-single-space-tabs-toggle');
+  if (hideSingleSpaceTabsToggle) hideSingleSpaceTabsToggle.className = 'toggle ' + (isHideSingleSpaceTabsEnabled() ? 'on' : '');
+
   // translate toggle sync
   const translateToggle = document.getElementById('translate-toggle');
   if (translateToggle) translateToggle.className = 'toggle ' + (isTranslateEnabled() ? 'on' : '');
 
+  applySpaceTabsVisibility();
   applyShareSectionAvailability();
   applyTranslateAvailability();
 
@@ -1195,8 +1208,16 @@ function isTranslateEnabled() {
   return S.settings.translateEnabled !== false;
 }
 
+function isHideSingleSpaceTabsEnabled() {
+  return S.settings.hideSingleSpaceTabs === true;
+}
+
 function isShareSectionEnabled() {
   return S.settings.shareSectionEnabled !== false;
+}
+
+function shouldHideSpaceTabs() {
+  return isHideSingleSpaceTabsEnabled() && S.spaces.length <= 1;
 }
 
 function setLang(lang) {
@@ -1214,6 +1235,12 @@ function setLang(lang) {
 
 function toggleTranslateAvailability() {
   S.settings.translateEnabled = !isTranslateEnabled();
+  saveSettingsDebounced();
+  applySettings();
+}
+
+function toggleHideSingleSpaceTabs() {
+  S.settings.hideSingleSpaceTabs = !isHideSingleSpaceTabsEnabled();
   saveSettingsDebounced();
   applySettings();
 }
@@ -1274,6 +1301,18 @@ function applyTranslateAvailability() {
   }
 
   loadTranslateWidget();
+}
+
+function applySpaceTabsVisibility() {
+  const tabbar = document.getElementById('tabbar');
+  const root = document.documentElement;
+  const styles = getComputedStyle(root);
+  const navHeight = parseInt(styles.getPropertyValue('--nav-h'), 10) || 50;
+  const tabHeight = parseInt(styles.getPropertyValue('--tab-h'), 10) || 40;
+  const hideTabs = shouldHideSpaceTabs();
+
+  if (tabbar) tabbar.style.display = hideTabs ? 'none' : '';
+  root.style.setProperty('--total-h', `${navHeight + (hideTabs ? 0 : tabHeight)}px`);
 }
 
 function applyShareSectionAvailability() {
@@ -1391,6 +1430,7 @@ function closeSettings() {
 // ════════════════════════════════════════
 function renderSpaces() {
   const strip = document.getElementById('tab-strip');
+  if (!strip) return;
   strip.innerHTML = '';
 
   S.spaces.forEach(sp => {
@@ -1415,6 +1455,8 @@ function renderSpaces() {
   addBtn.innerHTML = `<i class="fa-solid fa-plus"></i> ${t('btnNewSpace')}`;
   addBtn.onclick = addSpace;
   strip.appendChild(addBtn);
+
+  applySpaceTabsVisibility();
 }
 
 let editingSpaceId = null;

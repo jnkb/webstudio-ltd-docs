@@ -418,6 +418,7 @@ let S = {
     faviconDataUrl: null,
     tabTitle: 'Docs',
     lang: DEFAULT_INTERFACE_LANG,
+    hideSingleSpaceTabs: false,
     shareSectionEnabled: true,
     translateEnabled: true,
   }
@@ -695,13 +696,28 @@ function applySettings() {
   applyFooterDisplay();
   document.title = s.tabTitle || 'Docs';
 
+  applySpaceTabsVisibility();
   applyShareSectionAvailability();
   applyTranslateAvailability();
   applyTranslations();
 }
 
 function isTranslateEnabled() { return S.settings.translateEnabled !== false; }
+function isHideSingleSpaceTabsEnabled() { return S.settings.hideSingleSpaceTabs === true; }
 function isShareSectionEnabled() { return S.settings.shareSectionEnabled !== false; }
+function shouldHideSpaceTabs() { return isHideSingleSpaceTabsEnabled() && S.spaces.length <= 1; }
+
+function applySpaceTabsVisibility() {
+  const tabbar = document.getElementById('tabbar');
+  const root = document.documentElement;
+  const styles = getComputedStyle(root);
+  const navHeight = parseInt(styles.getPropertyValue('--nav-h'), 10) || 50;
+  const tabHeight = parseInt(styles.getPropertyValue('--tab-h'), 10) || 40;
+  const hideTabs = shouldHideSpaceTabs();
+
+  if (tabbar) tabbar.style.display = hideTabs ? 'none' : '';
+  root.style.setProperty('--total-h', `${navHeight + (hideTabs ? 0 : tabHeight)}px`);
+}
 
 function applyShareSectionAvailability() {
   const shareSection = document.getElementById('toc-share-section');
@@ -813,6 +829,7 @@ document.addEventListener('click', e => {
 // ════════════════════════════════════════
 function renderSpaces() {
   const strip = document.getElementById('tab-strip');
+  if (!strip) return;
   strip.innerHTML = '';
   S.spaces.forEach(sp => {
     const el = document.createElement('div');
@@ -821,6 +838,8 @@ function renderSpaces() {
     el.onclick = () => switchSpace(sp.id);
     strip.appendChild(el);
   });
+
+  applySpaceTabsVisibility();
 }
 
 function switchSpace(id) {
