@@ -1841,7 +1841,34 @@ async function navigateTo(pageId) {
 // ════════════════════════════════════════
 //  PAGE RENDER
 // ════════════════════════════════════════
+function disposeEditor(resetHolder = false) {
+  const activeEditor = editor;
+  editor = null;
+
+  if (activeEditor?.destroy) {
+    try {
+      const destroyResult = activeEditor.destroy();
+      if (destroyResult && typeof destroyResult.catch === 'function') destroyResult.catch(() => {});
+    } catch(e) {}
+  }
+
+  if (resetHolder) {
+    const holder = document.getElementById('editor');
+    if (holder) {
+      const freshHolder = document.createElement('div');
+      freshHolder.id = 'editor';
+      holder.replaceWith(freshHolder);
+    }
+  }
+}
+
 function renderPage() {
+  disposeEditor();
+  if (scrollSpyObserver) {
+    scrollSpyObserver.disconnect();
+    scrollSpyObserver = null;
+  }
+
   const view = document.getElementById('page-view');
   const page = S.pages.find(p => p.id === S.currentPageId);
 
@@ -1856,6 +1883,8 @@ function renderPage() {
     updateTOC(); updatePageNavBottom(null);
     return;
   }
+
+  const blocks = page.content?.blocks || [];
 
   // Breadcrumb — rekurzívne celý strom predkov
   const ancestors = [];
@@ -1930,7 +1959,20 @@ function renderPage() {
 
   bindEditorPageLinks(view);
   updatePageNavBottom(page);
-  initEditor(page);
+  if (S.editMode || blocks.length) {
+    initEditor(page);
+  } else {
+    const editorEl = document.getElementById('editor');
+    if (editorEl) {
+      editorEl.innerHTML = `
+        <div class="page-empty-state">
+          <i class="fa-regular fa-file-lines"></i>
+          <p>${t('pageEmpty')}</p>
+          ${S.authed ? `<button class="btn btn-primary" onclick="toggleEdit()"><i class="fa-solid fa-plus"></i> ${t('pageAddContent')}</button>` : ''}
+        </div>`;
+    }
+    updateTOC();
+  }
 
   // Update document title and OG tags
   const siteName = S.settings?.siteName || 'Docs';
@@ -3401,23 +3443,8 @@ async function toggleEdit() {
   S.editMode = !S.editMode;
   syncEditUI();
 
-  const pg = document.getElementById('pg-title');
-  const desc = document.getElementById('pg-desc');
-  if (pg) pg.readOnly = !S.editMode;
-  if (desc) desc.contentEditable = S.editMode;
-
-  // Zruš starý editor a vytvor nový so správnym readOnly
-  const page = S.pages.find(p => p.id === S.currentPageId);
-  if (page) {
-    if (editor) {
-      try { await editor.destroy(); } catch(e) {}
-      editor = null;
-      const h = document.getElementById('editor');
-      if (h) { const c = document.createElement('div'); c.id = 'editor'; h.replaceWith(c); }
-    }
-    await initEditor(page);
-    hideSaveBar();
-  }
+  renderPage();
+  hideSaveBar();
 }
 
 function syncEditUI() {
@@ -3577,6 +3604,8 @@ function hideSaveBar() {
 }
 
 async function discardChanges() {
+  clearTimeout(saveTimer);
+  clearTimeout(tocTimer);
   hideSaveBar();
   // Reloadni stránku z servera
   const page = S.pages.find(p => p.id === S.currentPageId);
@@ -3589,11 +3618,12 @@ async function discardChanges() {
       if (idx !== -1) S.pages[idx] = d.page;
     }
   } catch(e) {}
-  renderPage();
   if (S.editMode) {
     S.editMode = false;
-    await toggleEdit();
+    syncEditUI();
   }
+  renderNav();
+  renderPage();
 }
 
 async function autoSave(silent = false) {
@@ -5144,29 +5174,6 @@ navigateTo = async function(pageId) {
   await _origNavigateTo(pageId);
   if (view) {
     view.classList.remove('fading');
-  }
-};
-
-// ════════════════════════════════════════
-//  EMPTY STATE
-// ════════════════════════════════════════
-const _origRenderPage = renderPage;
-renderPage = function() {
-  _origRenderPage();
-  // Inject empty state if no blocks
-  const page = S.pages.find(p => p.id === S.currentPageId);
-  if (!page) return;
-  const blocks = page.content?.blocks || [];
-  if (!blocks.length && !S.editMode) {
-    const editorEl = document.getElementById('editor');
-    if (editorEl) {
-      editorEl.innerHTML = `
-        <div class="page-empty-state">
-          <i class="fa-regular fa-file-lines"></i>
-          <p>${t('pageEmpty')}</p>
-          ${S.authed ? `<button class="btn btn-primary" onclick="toggleEdit()"><i class="fa-solid fa-plus"></i> ${t('pageAddContent')}</button>` : ''}
-        </div>`;
-    }
   }
 };
 
