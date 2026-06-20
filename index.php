@@ -290,9 +290,9 @@ $_ogData = (function() {
         <div class="toc-sep"></div>
         <div class="toc-feedback-label" data-i18n="tocFeedback">Was this helpful?</div>
         <div class="toc-feedback-btns">
-            <button class="fb-btn" type="button" data-rating="-1" data-icon="👎" onclick="react(this.dataset.rating, this.dataset.icon)" title="No"><i class="fa-regular fa-face-frown"></i></button>
-            <button class="fb-btn" type="button" data-rating="0" data-icon="😐" onclick="react(this.dataset.rating, this.dataset.icon)" title="Neutral"><i class="fa-regular fa-face-meh"></i></button>
-            <button class="fb-btn" type="button" data-rating="1" data-icon="👍" onclick="react(this.dataset.rating, this.dataset.icon)" title="Yes"><i class="fa-regular fa-face-smile"></i></button>
+            <button class="fb-btn" type="button" data-rating="-1" data-icon="👎" onclick="react(this.dataset.rating, this.dataset.icon)" data-i18n-attr="title" data-i18n="ratingNegative" title="Not helpful"><i class="fa-regular fa-face-frown"></i></button>
+            <button class="fb-btn" type="button" data-rating="0" data-icon="😐" onclick="react(this.dataset.rating, this.dataset.icon)" data-i18n-attr="title" data-i18n="ratingNeutral" title="Neutral"><i class="fa-regular fa-face-meh"></i></button>
+            <button class="fb-btn" type="button" data-rating="1" data-icon="👍" onclick="react(this.dataset.rating, this.dataset.icon)" data-i18n-attr="title" data-i18n="ratingPositive" title="Helpful"><i class="fa-regular fa-face-smile"></i></button>
         </div>
       </div>
       <div id="toc-admin-rating-slot"></div>
@@ -1490,12 +1490,12 @@ function enhanceCodeBlocks() {
     if (!block.querySelector('.code-copy-btn')) {
       const btn = document.createElement('button');
       btn.className = 'code-copy-btn';
-      btn.innerHTML = '<i class="fa-regular fa-copy" style="font-style:normal"></i> Copy';
+      btn.innerHTML = `<i class="fa-regular fa-copy" style="font-style:normal"></i> ${t('codeCopy')}`;
       btn.onclick = (e) => {
         e.stopPropagation();
         navigator.clipboard.writeText(codeEl ? codeEl.textContent : '').then(() => {
-          btn.innerHTML = '<i class="fa-solid fa-check" style="font-style:normal;color:#22c55e"></i> Copied!';
-          setTimeout(() => { btn.innerHTML = '<i class="fa-regular fa-copy" style="font-style:normal"></i> Copy'; }, 1500);
+          btn.innerHTML = `<i class="fa-solid fa-check" style="font-style:normal;color:#22c55e"></i> ${t('codeCopied')}`;
+          setTimeout(() => { btn.innerHTML = `<i class="fa-regular fa-copy" style="font-style:normal"></i> ${t('codeCopy')}`; }, 1500);
         });
       };
       block.appendChild(btn);

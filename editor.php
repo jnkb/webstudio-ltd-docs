@@ -325,9 +325,9 @@ $_ogData = (function() {
         <div class="toc-sep"></div>
         <div class="toc-feedback-label" data-i18n="tocFeedback">Was this helpful?</div>
         <div class="toc-feedback-btns">
-            <button class="fb-btn" type="button" data-rating="-1" data-icon="👎" onclick="react(this.dataset.rating, this.dataset.icon)" title="No"><i class="fa-regular fa-face-frown"></i></button>
-            <button class="fb-btn" type="button" data-rating="0" data-icon="😐" onclick="react(this.dataset.rating, this.dataset.icon)" title="Neutral"><i class="fa-regular fa-face-meh"></i></button>
-            <button class="fb-btn" type="button" data-rating="1" data-icon="👍" onclick="react(this.dataset.rating, this.dataset.icon)" title="Yes"><i class="fa-regular fa-face-smile"></i></button>
+            <button class="fb-btn" type="button" data-rating="-1" data-icon="👎" onclick="react(this.dataset.rating, this.dataset.icon)" data-i18n-attr="title" data-i18n="ratingNegative" title="Not helpful"><i class="fa-regular fa-face-frown"></i></button>
+            <button class="fb-btn" type="button" data-rating="0" data-icon="😐" onclick="react(this.dataset.rating, this.dataset.icon)" data-i18n-attr="title" data-i18n="ratingNeutral" title="Neutral"><i class="fa-regular fa-face-meh"></i></button>
+            <button class="fb-btn" type="button" data-rating="1" data-icon="👍" onclick="react(this.dataset.rating, this.dataset.icon)" data-i18n-attr="title" data-i18n="ratingPositive" title="Helpful"><i class="fa-regular fa-face-smile"></i></button>
         </div>
       </div>
       <div id="toc-admin-rating-slot"></div>
@@ -376,7 +376,7 @@ $_ogData = (function() {
     <div class="shortcut-row admin-only" style="display:none"><span class="shortcut-label" data-i18n="shortcutUndo">Undo</span><span class="shortcut-keys"><kbd>⌘</kbd><kbd>Z</kbd></span></div>
     <div class="shortcut-row admin-only" style="display:none"><span class="shortcut-label" data-i18n="shortcutRedo">Redo</span><span class="shortcut-keys"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>Z</kbd></span></div>
     <div class="shortcut-row"><span class="shortcut-label" data-i18n="shortcutSearch">Search</span><span class="shortcut-keys"><kbd>⌘</kbd><kbd>K</kbd></span></div>
-    <div class="shortcut-row admin-only" style="display:none"><span class="shortcut-label">Slash menu</span><span class="shortcut-keys"><kbd>⌘</kbd><kbd>/</kbd></span></div>
+    <div class="shortcut-row admin-only" style="display:none"><span class="shortcut-label" data-i18n="shortcutSlashMenu">Slash menu</span><span class="shortcut-keys"><kbd>⌘</kbd><kbd>/</kbd></span></div>
     <div class="shortcut-row"><span class="shortcut-label" data-i18n="shortcutReadingMode">Reading mode</span><span class="shortcut-keys"><kbd>⌘</kbd><kbd>R</kbd></span></div>
     <div class="shortcut-row" id="shortcut-share-row"><span class="shortcut-label" data-i18n="shortcutShare">Share page</span><span class="shortcut-keys"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>C</kbd></span></div>
     <div class="shortcut-row"><span class="shortcut-label" data-i18n="shortcutPrevNext">Previous / Next page</span><span class="shortcut-keys"><kbd>←</kbd><kbd>→</kbd></span></div>
@@ -400,7 +400,7 @@ $_ogData = (function() {
       <input class="field-input" type="text" id="new-title" data-i18n-ph="modalAddPageName" placeholder="Page title" onkeydown="if(event.key==='Enter')confirmAddPage()">
     </div>
     <div class="modal-field">
-      <label>Icon (Font Awesome)</label>
+      <label data-i18n="modalAddIcon">Icon (e.g. fa-file)</label>
       <div style="display:flex;gap:8px;align-items:center">
         <input class="field-input" type="text" id="new-icon" placeholder="fa-file" style="flex:1" oninput="previewIcon(this.value)">
         <div id="icon-preview-box" style="width:34px;height:34px;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text2);font-size:14px;flex-shrink:0">
@@ -412,7 +412,7 @@ $_ogData = (function() {
       </div>
     </div>
     <div class="modal-field">
-      <label data-i18n="modalAddSection">Section (optional)</label>
+      <label data-i18n="modalAddSectionLabel">Section (optional)</label>
       <input class="field-input" type="text" id="new-section" data-i18n-ph="modalAddSection" placeholder="Section name">
     </div>
     <div class="modal-actions" style="justify-content:space-between;">
@@ -431,7 +431,7 @@ $_ogData = (function() {
       <input class="field-input" type="text" id="space-name-input" data-i18n-ph="modalSpaceName" placeholder="Space name" onkeydown="if(event.key==='Enter')confirmSpaceEdit()">
     </div>
     <div class="modal-field">
-      <label>Icon (Font Awesome)</label>
+      <label data-i18n="modalAddIcon">Icon (e.g. fa-file)</label>
       <div style="display:flex;gap:8px;align-items:center">
         <input class="field-input" type="text" id="space-icon-input" placeholder="fa-book" style="flex:1" oninput="previewSpaceIcon(this.value)">
         <div id="space-icon-preview" style="width:34px;height:34px;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text2);font-size:14px;flex-shrink:0">
@@ -468,7 +468,7 @@ $_ogData = (function() {
       <input class="field-input" type="text" id="page-edit-subtitle" data-i18n-ph="modalEditSubtitlePlaceholder" placeholder="Short page description">
     </div>
     <div class="modal-field">
-      <label>Icon (Font Awesome)</label>
+      <label data-i18n="modalAddIcon">Icon (e.g. fa-file)</label>
       <div style="display:flex;gap:8px;align-items:center">
         <input class="field-input" type="text" id="page-edit-icon" placeholder="fa-file" oninput="previewPageEditIcon(this.value)" style="flex:1">
         <div id="page-edit-icon-preview" style="width:34px;height:34px;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text2);font-size:14px;flex-shrink:0"><i class="fa-solid fa-file"></i></div>
@@ -478,7 +478,7 @@ $_ogData = (function() {
       </div>
     </div>
     <div class="modal-field">
-      <label data-i18n="modalAddSection">Section (optional)</label>
+      <label data-i18n="modalAddSectionLabel">Section (optional)</label>
       <input class="field-input" type="text" id="page-edit-section" data-i18n-ph="modalAddSection" placeholder="Section name">
     </div>
     <div class="modal-actions" style="justify-content:space-between;">
@@ -703,7 +703,7 @@ $_ogData = (function() {
   <div class="auth-box" id="auth-box">
     <div class="auth-icon"><i class="fa-solid fa-lock" id="auth-icon-i"></i></div>
     <div class="auth-title" id="auth-title" data-i18n="authLogin">Log in</div>
-    <div class="auth-sub" id="auth-sub">Enter your password to access admin mode.</div>
+    <div class="auth-sub" id="auth-sub" data-i18n="authLoginSubtitle">Enter your password to access admin mode.</div>
     <div class="pin-row" id="pin-row">
       <input class="pin-digit" type="password" maxlength="1" inputmode="numeric" pattern="[0-9]" id="pin0" oninput="pinInput(0,this)">
       <input class="pin-digit" type="password" maxlength="1" inputmode="numeric" pattern="[0-9]" id="pin1" oninput="pinInput(1,this)">
@@ -1435,7 +1435,7 @@ function handleFaviconUpload(input) {
   const file = input.files[0];
   if (!file) return;
   // Max 256KB for favicon
-  if (file.size > 256 * 1024) { showToast('Favicon too large (max 256 KB)'); return; }
+  if (file.size > 256 * 1024) { showToast(t('toastFaviconTooLarge')); return; }
   const reader = new FileReader();
   reader.onload = async e => {
     S.settings.faviconDataUrl = e.target.result;
@@ -1886,8 +1886,8 @@ function renderPage() {
     ${page.cover ? `<div class="page-cover" id="page-cover-el" style="${page.cover.type==='color' ? 'background:'+page.cover.value : ''}">
       ${page.cover.type==='image' ? `<img src="${page.cover.value}" alt="" style="object-fit:${page.cover.fit||'cover'};object-position:${page.cover.position||'50% 50%'}">` : ''}
       ${S.editMode ? `<div class="page-cover-actions">
-        <button class="page-cover-btn" onclick="changeCover()"><i class="fa-solid fa-image"></i> <span data-i18n="coverChange">Change</span></button>
-        <button class="page-cover-btn" onclick="removeCover()"><i class="fa-solid fa-trash"></i> <span data-i18n="coverRemove">Remove</span></button>
+        <button class="page-cover-btn" onclick="changeCover()"><i class="fa-solid fa-image"></i> ${t('coverChange')}</button>
+        <button class="page-cover-btn" onclick="removeCover()"><i class="fa-solid fa-trash"></i> ${t('coverRemove')}</button>
       </div>
       ${page.cover?.type === 'image' ? `<div class="cover-pos-panel">
         <span class="cover-pos-label">${t('coverCenter')}</span>
@@ -1898,8 +1898,8 @@ function renderPage() {
         </div>
         <span class="cover-pos-label" style="margin-left:4px">${t('coverFitCover')}</span>
         <div class="cover-pos-btns">
-          <button class="cover-pos-btn ${(page.cover?.fit||'cover')==='cover'?'active':''}" onclick="setCoverFit('cover')">${t('coverFitCover')}</button>
-          <button class="cover-pos-btn ${(page.cover?.fit||'cover')==='contain'?'active':''}" onclick="setCoverFit('contain')">${t('coverFitContain')}</button>
+          <button class="cover-pos-btn ${(page.cover?.fit||'cover')==='cover'?'active':''}" data-fit="cover" onclick="setCoverFit('cover')">${t('coverFitCover')}</button>
+          <button class="cover-pos-btn ${(page.cover?.fit||'cover')==='contain'?'active':''}" data-fit="contain" onclick="setCoverFit('contain')">${t('coverFitContain')}</button>
         </div>
       </div>` : ''}` : ''}
     </div>` : ''}
@@ -1916,7 +1916,7 @@ function renderPage() {
           ${S.editMode ? '' : 'readonly'}
           oninput="markDirty()">
         <div style="display:flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0">
-          ${S.editMode && !page.cover ? `<button onclick="addCover()" style="font-size:12px;padding:4px 10px;border-radius:6px;border:1px dashed var(--border);background:transparent;color:var(--text3);cursor:pointer;font-family:var(--font);display:flex;align-items:center;gap:5px;transition:all .15s;" onmouseover="this.style.color='var(--text2)';this.style.borderColor='var(--text3)'" onmouseout="this.style.color='var(--text3)';this.style.borderColor='var(--border)'"><i class="fa-solid fa-image"></i> Cover</button>` : ''}
+          ${S.editMode && !page.cover ? `<button onclick="addCover()" style="font-size:12px;padding:4px 10px;border-radius:6px;border:1px dashed var(--border);background:transparent;color:var(--text3);cursor:pointer;font-family:var(--font);display:flex;align-items:center;gap:5px;transition:all .15s;" onmouseover="this.style.color='var(--text2)';this.style.borderColor='var(--text3)'" onmouseout="this.style.color='var(--text3)';this.style.borderColor='var(--border)'"><i class="fa-solid fa-image"></i> ${t('coverLabel')}</button>` : ''}
           <div class="reading-time" id="reading-time-el"><i class="fa-regular fa-clock"></i> <span>...</span></div>
         </div>
       </div>
@@ -2012,11 +2012,8 @@ async function setCoverFit(fit) {
   await savePageToServer(page);
   const img = document.querySelector('#page-cover-el img');
   if (img) img.style.objectFit = fit;
-  document.querySelectorAll('.cover-pos-btn').forEach(b => {
-    const label = b.textContent.trim();
-    if (label === 'Vyplniť' || label === 'Celý') {
-      b.classList.toggle('active', (label === 'Vyplniť' ? 'cover' : 'contain') === fit);
-    }
+  document.querySelectorAll('.cover-pos-btn[data-fit]').forEach(b => {
+    b.classList.toggle('active', b.dataset.fit === fit);
   });
 }
 
@@ -2167,7 +2164,7 @@ function openIconPicker() {
 
   const inp = document.createElement('input');
   inp.className = 'field-input icon-search-modal';
-  inp.placeholder = 'Hľadaj ikonu... (napr. file)';
+  inp.placeholder = t('iconPickerSearch');
   inp.style.cssText = 'width:100%;margin-bottom:10px';
 
   const grid = document.createElement('div');
@@ -2298,7 +2295,7 @@ class LocalImageTool {
 
   async _loadFile(file) {
     // Show loading state
-    this._wrapper.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3)"><i class="fa-solid fa-spinner fa-spin"></i> Nahrávam...</div>';
+    this._wrapper.innerHTML = `<div style="padding:20px;text-align:center;color:var(--text3)"><i class="fa-solid fa-spinner fa-spin"></i> ${t('imagePasteUploading')}</div>`;
     try {
       const fd = new FormData();
       fd.append('image', file);
@@ -2312,7 +2309,7 @@ class LocalImageTool {
       this._renderImage();
     } catch(e) {
       console.error('Image upload failed', e);
-      this._wrapper.innerHTML = `<div style="padding:16px;text-align:center;color:#ef4444"><i class="fa-solid fa-circle-exclamation"></i> Upload zlyhal: ${e.message}</div>`;
+      this._wrapper.innerHTML = `<div style="padding:16px;text-align:center;color:#ef4444"><i class="fa-solid fa-circle-exclamation"></i> ${t('imagePasteFailed')}: ${e.message}</div>`;
       setTimeout(() => this._renderUploader(), 2000);
     }
   }
@@ -2333,7 +2330,7 @@ class LocalImageTool {
     const cap = document.createElement('div');
     cap.className = 'lit-caption';
     cap.contentEditable = this.readOnly ? 'false' : 'true';
-    cap.dataset.placeholder = 'Popis obrázka...';
+    cap.dataset.placeholder = t('imageCaptionPlaceholder');
     cap.textContent = this.data.caption;
     cap.oninput = () => { this.data.caption = cap.textContent; img.alt = cap.textContent; };
     this._wrapper.appendChild(cap);
@@ -2342,7 +2339,7 @@ class LocalImageTool {
       const del = document.createElement('button');
       del.className = 'lit-del-btn';
       del.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
-      del.title = 'Odstrániť obrázok';
+      del.title = t('imageRemoveTitle');
       del.onclick = () => { this.data.url = ''; this.data.caption = ''; this._renderUploader(); };
       this._wrapper.appendChild(del);
     }
@@ -2350,9 +2347,9 @@ class LocalImageTool {
 
   renderSettings() {
     return [
-      { label: 'Orámovanie', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>', isActive: this.data.withBorder, closeOnActivate: true, onActivate: () => { this.data.withBorder = !this.data.withBorder; if (this.data.url) this._renderImage(); } },
-      { label: 'Pozadie', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>', isActive: this.data.withBackground, closeOnActivate: true, onActivate: () => { this.data.withBackground = !this.data.withBackground; if (this.data.url) this._renderImage(); } },
-      { label: 'Na celú šírku', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>', isActive: this.data.stretched, closeOnActivate: true, onActivate: () => { this.data.stretched = !this.data.stretched; if (this.data.url) this._renderImage(); } },
+      { label: t('blockWithBorder'), icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>', isActive: this.data.withBorder, closeOnActivate: true, onActivate: () => { this.data.withBorder = !this.data.withBorder; if (this.data.url) this._renderImage(); } },
+      { label: t('blockWithBackground'), icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>', isActive: this.data.withBackground, closeOnActivate: true, onActivate: () => { this.data.withBackground = !this.data.withBackground; if (this.data.url) this._renderImage(); } },
+      { label: t('blockFullWidth'), icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>', isActive: this.data.stretched, closeOnActivate: true, onActivate: () => { this.data.stretched = !this.data.stretched; if (this.data.url) this._renderImage(); } },
     ];
   }
 
@@ -2378,10 +2375,10 @@ class CalloutTool {
 
   static get TYPES() {
     return {
-      info:    { icon: 'fa-circle-info',          color: 'var(--accent)',  bg: 'rgba(var(--accent-rgb),0.08)', label: 'Info' },
-      tip:     { icon: 'fa-lightbulb',            color: '#16a34a',        bg: 'rgba(22,163,74,0.08)',         label: 'Tip' },
-      warning: { icon: 'fa-triangle-exclamation', color: '#ca8a04',        bg: 'rgba(202,138,4,0.08)',         label: 'Warning' },
-      danger:  { icon: 'fa-circle-exclamation',   color: '#dc2626',        bg: 'rgba(220,38,38,0.08)',         label: 'Danger' },
+      info:    { icon: 'fa-circle-info',          color: 'var(--accent)',  bg: 'rgba(var(--accent-rgb),0.08)', label: t('calloutTypeInfo') },
+      tip:     { icon: 'fa-lightbulb',            color: '#16a34a',        bg: 'rgba(22,163,74,0.08)',         label: t('calloutTypeTip') },
+      warning: { icon: 'fa-triangle-exclamation', color: '#ca8a04',        bg: 'rgba(202,138,4,0.08)',         label: t('calloutTypeWarning') },
+      danger:  { icon: 'fa-circle-exclamation',   color: '#dc2626',        bg: 'rgba(220,38,38,0.08)',         label: t('calloutTypeDanger') },
     };
   }
 
@@ -2688,7 +2685,7 @@ class CollapsibleTool {
     } else {
       const titleSpan = document.createElement('span');
       titleSpan.className = 'collapsible-title-text';
-      titleSpan.textContent = this.data.title || 'Sekcia';
+      titleSpan.textContent = this.data.title || t('collapsibleDefaultTitle');
       header.appendChild(chevron);
       header.appendChild(titleSpan);
     }
@@ -2705,7 +2702,7 @@ class CollapsibleTool {
     if (!this.readOnly) {
       const ta = document.createElement('textarea');
       ta.value = this.data.body;
-      ta.placeholder = 'Obsah sekcie...';
+      ta.placeholder = t('collapsibleBodyPlaceholder');
       ta.rows = 3;
       ta.addEventListener('input', e => {
         this.data.body = e.target.value;
@@ -3450,7 +3447,7 @@ function syncEditUI() {
         // No cover — show "Add cover" button
         const btn = document.createElement('button');
         btn.id = 'cover-add-btn-inline';
-        btn.innerHTML = '<i class="fa-solid fa-image"></i> Cover';
+        btn.innerHTML = `<i class="fa-solid fa-image"></i> ${t('coverLabel')}`;
         btn.style.cssText = 'font-size:12px;padding:4px 10px;border-radius:6px;border:1px dashed var(--border);background:transparent;color:var(--text3);cursor:pointer;font-family:var(--font);display:flex;align-items:center;gap:5px;transition:all .15s;white-space:nowrap;';
         btn.onmouseover = () => { btn.style.color = 'var(--text2)'; btn.style.borderColor = 'var(--text3)'; };
         btn.onmouseout = () => { btn.style.color = 'var(--text3)'; btn.style.borderColor = 'var(--border)'; };
@@ -3468,8 +3465,8 @@ function syncEditUI() {
           actions.className = 'page-cover-actions';
           actions.id = 'cover-actions-inline';
           actions.innerHTML = `
-            <button class="page-cover-btn" onclick="changeCover()"><i class="fa-solid fa-image"></i> <span data-i18n="coverChange">Change</span></button>
-            <button class="page-cover-btn" onclick="removeCover()"><i class="fa-solid fa-trash"></i> <span data-i18n="coverRemove">Remove</span></button>`;
+            <button class="page-cover-btn" onclick="changeCover()"><i class="fa-solid fa-image"></i> ${t('coverChange')}</button>
+            <button class="page-cover-btn" onclick="removeCover()"><i class="fa-solid fa-trash"></i> ${t('coverRemove')}</button>`;
           coverEl.appendChild(actions);
 
           // Position panel len pre obrázky
@@ -3481,8 +3478,8 @@ function syncEditUI() {
               <i class="fa-solid fa-up-down-left-right" style="color:rgba(255,255,255,.7);font-size:11px"></i>
               <span class="cover-pos-label">${t('dragReorder')}</span>
               <div class="cover-pos-btns">
-                <button class="cover-pos-btn ${fit==='cover'?'active':''}" onclick="setCoverFit('cover')">${t('coverFitCover')}</button>
-                <button class="cover-pos-btn ${fit==='contain'?'active':''}" onclick="setCoverFit('contain')">${t('coverFitContain')}</button>
+                <button class="cover-pos-btn ${fit==='cover'?'active':''}" data-fit="cover" onclick="setCoverFit('cover')">${t('coverFitCover')}</button>
+                <button class="cover-pos-btn ${fit==='contain'?'active':''}" data-fit="contain" onclick="setCoverFit('contain')">${t('coverFitContain')}</button>
               </div>`;
             coverEl.appendChild(panel);
             initCoverDrag(coverEl, page);
@@ -4427,7 +4424,7 @@ function openLoginModal() {
   // Build modal content for password login
   document.getElementById('auth-icon-i').className = 'fa-solid fa-key';
   document.getElementById('auth-title').textContent = t('authLogin');
-  document.getElementById('auth-sub').textContent = t('authLogin');
+  document.getElementById('auth-sub').textContent = t('authLoginSubtitle');
   document.getElementById('auth-submit-btn').textContent = t('authLogin');
   document.getElementById('auth-hint').textContent = '';
   document.getElementById('auth-error').innerHTML = '';
@@ -5181,14 +5178,14 @@ function injectCodeCopyButtons() {
     if (block.querySelector('.code-copy-btn')) return;
     const btn = document.createElement('button');
     btn.className = 'code-copy-btn';
-    btn.innerHTML = '<i class="fa-regular fa-copy" style="font-style:normal"></i> Copy';
+    btn.innerHTML = `<i class="fa-regular fa-copy" style="font-style:normal"></i> ${t('codeCopy')}`;
     btn.onclick = (e) => {
       e.stopPropagation();
       const textarea = block.querySelector('.ce-code__textarea');
       if (!textarea) return;
       navigator.clipboard.writeText(textarea.value || textarea.textContent).then(() => {
-        btn.innerHTML = '<i class="fa-solid fa-check" style="font-style:normal;color:#22c55e"></i> Copied!';
-        setTimeout(() => { btn.innerHTML = '<i class="fa-regular fa-copy" style="font-style:normal"></i> Copy'; }, 1500);
+        btn.innerHTML = `<i class="fa-solid fa-check" style="font-style:normal;color:#22c55e"></i> ${t('codeCopied')}`;
+        setTimeout(() => { btn.innerHTML = `<i class="fa-regular fa-copy" style="font-style:normal"></i> ${t('codeCopy')}`; }, 1500);
       });
     };
     block.appendChild(btn);
