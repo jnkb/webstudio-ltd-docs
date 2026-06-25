@@ -1056,7 +1056,10 @@ function renderBlock(b) {
     case 'checklist':  return renderChecklist(d);
     case 'quote':      return renderQuote(d);
     case 'code':       return renderCode(d);
-    case 'delimiter':  return `<div class="ce-delimiter cdx-delimiter cdx-block"></div>`;
+    case 'delimiter': {
+      const st = ['stars','line','dashed','dots'].includes(d.style) ? d.style : 'stars';
+      return `<div class="ce-delimiter cdx-delimiter cdx-block ce-delimiter--${st}"></div>`;
+    }
     case 'table':      return renderTable(d);
     case 'image':      return renderImage(d);
     case 'warning':    return renderCallout(d);

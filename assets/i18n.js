@@ -187,6 +187,8 @@ const TRANSLATIONS = {
         // ── Callout tool ──
         calloutTitlePlaceholder: 'Title (optional)', calloutMsgPlaceholder: 'Description...',
         calloutTypeInfo: 'Info', calloutTypeTip: 'Tip', calloutTypeWarning: 'Warning', calloutTypeDanger: 'Danger',
+        // ── Divider tool ──
+        dividerStyleStars: 'Stars', dividerStyleLine: 'Line', dividerStyleDashed: 'Dashed line', dividerStyleDots: 'Dots',
         // ── Collapsible tool ──
         collapsiblePlaceholder: 'Section heading...', collapsibleDefaultTitle: 'Section', collapsibleBodyPlaceholder: 'Section content...',
         // ── Video tool ──
@@ -372,6 +374,8 @@ const TRANSLATIONS = {
         blockPickerDelimiter: 'Trenner', blockPickerDelimiterDesc: 'Horizontale Linie',
         calloutTitlePlaceholder: 'Titel (optional)', calloutMsgPlaceholder: 'Beschreibung...',
         calloutTypeInfo: 'Info', calloutTypeTip: 'Tipp', calloutTypeWarning: 'Warnung', calloutTypeDanger: 'Gefahr',
+        // ── Divider tool ──
+        dividerStyleStars: 'Sterne', dividerStyleLine: 'Linie', dividerStyleDashed: 'Gestrichelt', dividerStyleDots: 'Punkte',
         collapsiblePlaceholder: 'Abschnittsüberschrift...', collapsibleDefaultTitle: 'Abschnitt', collapsibleBodyPlaceholder: 'Abschnittsinhalt...',
         videoInsertLabel: 'Video einfügen', videoInsertDesc: 'YouTube- oder Vimeo-URL',
         videoInsertBtn: 'Einfügen',
@@ -562,6 +566,8 @@ const TRANSLATIONS = {
         // ── Callout tool ──
         calloutTitlePlaceholder: 'Titulok (voliteľný)', calloutMsgPlaceholder: 'Popis...',
         calloutTypeInfo: 'Info', calloutTypeTip: 'Tip', calloutTypeWarning: 'Varovanie', calloutTypeDanger: 'Nebezpečenstvo',
+        // ── Divider tool ──
+        dividerStyleStars: 'Hviezdičky', dividerStyleLine: 'Čiara', dividerStyleDashed: 'Prerušovaná', dividerStyleDots: 'Bodky',
         // ── Collapsible tool ──
         collapsiblePlaceholder: 'Nadpis sekcie...', collapsibleDefaultTitle: 'Sekcia', collapsibleBodyPlaceholder: 'Obsah sekcie...',
         // ── Video tool ──

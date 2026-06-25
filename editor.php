@@ -201,7 +201,6 @@ $_ogData = (function() {
 <script src="https://cdn.jsdelivr.net/npm/@editorjs/nested-list@1.4.2"></script>
 <script src="https://cdn.jsdelivr.net/npm/@editorjs/code@2.9.0"></script>
 <script src="https://cdn.jsdelivr.net/npm/@editorjs/quote@2.6.0"></script>
-<script src="https://cdn.jsdelivr.net/npm/@editorjs/delimiter@1.4.2"></script>
 <script src="https://cdn.jsdelivr.net/npm/@editorjs/inline-code@1.5.0"></script>
 <script src="https://cdn.jsdelivr.net/npm/@editorjs/marker@1.4.0"></script>
 <script src="https://cdn.jsdelivr.net/npm/@editorjs/checklist@1.6.0"></script>
@@ -2509,6 +2508,42 @@ class CalloutTool {
 }
 
 // ════════════════════════════════════════
+//  DELIMITER TOOL — selectable styles: stars / line / dashed / dots
+// ════════════════════════════════════════
+class DelimiterTool {
+  static get toolbox() {
+    return {
+      title: 'Divider',
+      icon: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="12" x2="20" y2="12"/></svg>'
+    };
+  }
+  static get isReadOnlySupported() { return true; }
+
+  static get STYLES() {
+    return {
+      stars:  { icon: 'fa-asterisk',   label: t('dividerStyleStars') },
+      line:   { icon: 'fa-minus',      label: t('dividerStyleLine') },
+      dashed: { icon: 'fa-grip-lines', label: t('dividerStyleDashed') },
+      dots:   { icon: 'fa-ellipsis',   label: t('dividerStyleDots') },
+    };
+  }
+
+  constructor({ data }) {
+    this.data = { style: (data && DelimiterTool.STYLES[data.style]) ? data.style : 'stars' };
+  }
+
+  render() {
+    this._el = document.createElement('div');
+    this._el.className = `ce-delimiter cdx-delimiter cdx-block ce-delimiter--${this.data.style}`;
+    return this._el;
+  }
+
+  save() {
+    return { style: this.data.style || 'stars' };
+  }
+}
+
+// ════════════════════════════════════════
 //  TIMELINE TOOL
 // ════════════════════════════════════════
 class TimelineTool {
@@ -3046,7 +3081,7 @@ async function initEditor(page) {
     checklist: { class: Checklist, inlineToolbar: true },
     code: { class: CodeTool },
     quote: { class: Quote, inlineToolbar: true },
-    delimiter: Delimiter,
+    delimiter: { class: DelimiterTool },
     inlineCode: { class: InlineCode },
     marker: { class: Marker },
     table: { class: Table, inlineToolbar: true },
@@ -3326,6 +3361,11 @@ function getBlockTunes(type, data, idx) {
       return Object.entries(CalloutTool.TYPES).map(([tp, c]) => ({
         icon: c.icon, label: c.label, active: data.type === tp,
         action: () => editor.blocks.update(editor.blocks.getBlockByIndex(idx).id, { ...data, type: tp })
+      }));
+    case 'delimiter':
+      return Object.entries(DelimiterTool.STYLES).map(([st, c]) => ({
+        icon: c.icon, label: c.label, active: (data.style || 'stars') === st,
+        action: () => editor.blocks.update(editor.blocks.getBlockByIndex(idx).id, { ...data, style: st })
       }));
     case 'timeline':
       return [
@@ -5088,7 +5128,7 @@ async function insertSlashBlock(type) {
     collapse:  { type: 'collapse',  data: { title: '', body: '' } },
     timeline:  { type: 'timeline',  data: { numbered: false, items: [{ date: '', title: '', desc: '' }] } },
     cards:     { type: 'cards',     data: {} },
-    delimiter: { type: 'delimiter', data: {} },
+    delimiter: { type: 'delimiter', data: { style: 'stars' } },
   };
 
   const block = blockMap[type];

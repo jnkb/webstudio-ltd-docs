@@ -1157,7 +1157,31 @@ h3.ce-header { font-size: 17px; font-weight: 600; margin: 0 0 2px; }
 
 .cdx-block { color: var(--text) !important; }
 .ce-block--selected .ce-block__content { background: rgba(var(--accent-rgb), 0.05) !important; border-radius: 6px; }
-.cdx-delimiter::before { color: var(--text4) !important; }
+
+/* ── Divider / delimiter styles ── */
+.ce-delimiter { width: 100%; text-align: center; line-height: 1.6em; box-sizing: border-box; }
+/* stars (default) — classic three-asterisk look */
+.ce-delimiter--stars::before {
+  display: inline-block; content: "***";
+  font-size: 30px; line-height: 65px; height: 30px;
+  letter-spacing: 0.2em; color: var(--text3);
+}
+/* three dots */
+.ce-delimiter--dots::before {
+  display: inline-block; content: "\2022\2009\2022\2009\2022";
+  font-size: 22px; line-height: 65px; height: 30px;
+  letter-spacing: 0.15em; color: var(--text3);
+}
+/* solid line */
+.ce-delimiter--line::before {
+  display: block; content: ""; width: 100%;
+  margin: 22px 0; border-top: 1px solid var(--text3);
+}
+/* dashed line */
+.ce-delimiter--dashed::before {
+  display: block; content: ""; width: 100%;
+  margin: 22px 0; border-top: 1px dashed var(--text3);
+}
 
 /* inline code */
 .inline-code { background: var(--bg4) !important; color: #7dd3fc !important; border-radius: 4px; font-family: var(--mono) !important; font-size: 12.5px; padding: 1px 5px; }
