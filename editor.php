@@ -1057,6 +1057,23 @@ async function savePageToServer(page) {
   } catch(e) { console.warn('Save page error:', e); }
 }
 
+// Persist order/parent/section changes to each affected page's own file.
+// Reordering is not a content edit, so updatedAt is intentionally NOT bumped.
+async function persistPages(pages) {
+  await Promise.all((pages || []).map(p => {
+    const {
+      _contentLoaded, _ratingsLoaded,
+      ratingStats, ratingAverage, ratingCount, ratingCsvAvailable,
+      ...pageData
+    } = p;
+    return fetch('api.php?action=save_page', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ page: pageData })
+    }).catch(e => console.warn('Persist page error:', e));
+  }));
+}
+
 async function deletePagesFromServer(ids) {
   const pageIds = (Array.isArray(ids) ? ids : [ids])
     .map(id => String(id || '').trim())
@@ -4969,10 +4986,25 @@ document.addEventListener('click', e => {
 //  DRAG & DROP — sidebar pages
 // ════════════════════════════════════════
 let dragSrcId = null;
+let dragForbiddenIds = null;
+
+// Drop zones within a row: top third = reorder before, bottom third = reorder
+// after, middle third = nest as child.
+function navDropZone(rect, clientY) {
+  const ratio = (clientY - rect.top) / rect.height;
+  if (ratio <= 0.30) return 'above';
+  if (ratio >= 0.70) return 'below';
+  return 'child';
+}
 
 function initDragDrop() {
   const tree = document.getElementById('nav-tree');
   if (!tree || !S.authed) return;
+
+  const clearDropMarkers = () => {
+    tree.querySelectorAll('.nav-item').forEach(i =>
+      i.classList.remove('drag-over-above', 'drag-over-below', 'drag-over-child'));
+  };
 
   tree.querySelectorAll('.nav-item').forEach(item => {
     const pageId = item.dataset.pageId;
@@ -4981,50 +5013,79 @@ function initDragDrop() {
 
     item.addEventListener('dragstart', e => {
       dragSrcId = pageId;
+      // Forbid dropping a page onto itself or any of its descendants (would create a cycle)
+      dragForbiddenIds = collectDescendants(pageId);
       item.classList.add('dragging');
       e.dataTransfer.effectAllowed = 'move';
     });
     item.addEventListener('dragend', () => {
       item.classList.remove('dragging');
-      tree.querySelectorAll('.nav-item').forEach(i => {
-        i.classList.remove('drag-over-above', 'drag-over-below');
-      });
+      clearDropMarkers();
+      dragSrcId = null;
+      dragForbiddenIds = null;
     });
     item.addEventListener('dragover', e => {
       e.preventDefault();
-      if (dragSrcId === pageId) return;
-      const rect = item.getBoundingClientRect();
-      const mid = rect.top + rect.height / 2;
-      tree.querySelectorAll('.nav-item').forEach(i => i.classList.remove('drag-over-above','drag-over-below'));
-      item.classList.add(e.clientY < mid ? 'drag-over-above' : 'drag-over-below');
+      clearDropMarkers();
+      if (!dragSrcId || dragForbiddenIds?.has(pageId)) { e.dataTransfer.dropEffect = 'none'; return; }
+      item.classList.add('drag-over-' + navDropZone(item.getBoundingClientRect(), e.clientY));
     });
     item.addEventListener('dragleave', () => {
-      item.classList.remove('drag-over-above','drag-over-below');
+      item.classList.remove('drag-over-above', 'drag-over-below', 'drag-over-child');
     });
     item.addEventListener('drop', async e => {
       e.preventDefault();
-      if (dragSrcId === pageId) return;
-      item.classList.remove('drag-over-above','drag-over-below');
+      clearDropMarkers();
 
       const srcPage = S.pages.find(p => p.id === dragSrcId);
       const tgtPage = S.pages.find(p => p.id === pageId);
       if (!srcPage || !tgtPage || srcPage.spaceId !== tgtPage.spaceId) return;
+      // Block cycles: a page cannot become a child of itself or its own descendants
+      if (collectDescendants(srcPage.id).has(tgtPage.id)) return;
 
-      const rect = item.getBoundingClientRect();
-      const insertBefore = e.clientY < rect.top + rect.height / 2;
+      const zone = navDropZone(item.getBoundingClientRect(), e.clientY);
+      const asChild = zone === 'child';
+      let affected;
 
-      const siblings = S.pages
-        .filter(p => p.spaceId === srcPage.spaceId && p.parentId === tgtPage.parentId)
-        .sort((a,b) => a.order - b.order)
-        .filter(p => p.id !== srcPage.id);
-
-      const tgtIdx = siblings.findIndex(p => p.id === pageId);
-      siblings.splice(insertBefore ? tgtIdx : tgtIdx + 1, 0, srcPage);
-      srcPage.parentId = tgtPage.parentId;
-      siblings.forEach((p, i) => p.order = i);
+      if (asChild) {
+        // Nest the page as the last child of the target
+        const children = S.pages
+          .filter(p => p.spaceId === srcPage.spaceId && p.parentId === tgtPage.id && p.id !== srcPage.id)
+          .sort((a, b) => a.order - b.order);
+        children.push(srcPage);
+        srcPage.parentId = tgtPage.id;
+        srcPage.section = null; // sections only apply to root-level pages
+        children.forEach((p, i) => p.order = i);
+        affected = children;
+      } else {
+        // Reorder as a sibling, before or after the target
+        const insertBefore = zone === 'above';
+        const siblings = S.pages
+          .filter(p => p.spaceId === srcPage.spaceId && p.parentId === tgtPage.parentId)
+          .sort((a, b) => a.order - b.order)
+          .filter(p => p.id !== srcPage.id);
+        const tgtIdx = siblings.findIndex(p => p.id === pageId);
+        siblings.splice(insertBefore ? tgtIdx : tgtIdx + 1, 0, srcPage);
+        srcPage.parentId = tgtPage.parentId;
+        // Adopt the target's section so section grouping stays consistent with the
+        // visual order. Without this, a section-less root page dropped next to a
+        // sectioned one makes the whole section-less group reflow to that spot.
+        srcPage.section = tgtPage.parentId ? null : (tgtPage.section || null);
+        siblings.forEach((p, i) => p.order = i);
+        affected = siblings;
+      }
 
       renderNav();
-      await save();
+
+      if (asChild) {
+        // Expand the target so the freshly nested page is visible
+        document.getElementById('children-' + tgtPage.id)?.classList.add('open');
+        const toggleBtn = tree.querySelector(`.nav-item[data-page-id="${tgtPage.id}"] .nav-toggle`);
+        if (toggleBtn) { toggleBtn.classList.add('open'); toggleBtn.setAttribute('aria-expanded', 'true'); }
+      }
+
+      // Persist the moved page + reindexed siblings to their JSON files
+      await persistPages(affected);
       showToast(t('toastOrderSaved'));
     });
   });
