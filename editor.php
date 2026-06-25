@@ -3172,34 +3172,52 @@ async function insertPastedImageBlock(file) {
 // ════════════════════════════════════════
 let blockMenu = null;
 
+// Resolve the editor block index from a viewport Y coordinate (typically the
+// settings button's own vertical center). EditorJS does NOT reposition its
+// hover toolbar after a programmatic insert/convert/move, so matching the
+// (stale) toolbar top to the nearest block picks the wrong block. The button
+// the user actually clicks is the reliable anchor: prefer the block whose
+// vertical box contains the point, then fall back to the nearest block by gap.
+function getEditorBlockEls() {
+  return [...document.querySelectorAll('#editor .ce-block')];
+}
+
+function resolveEditorBlockIndexFromY(centerY) {
+  const blocks = getEditorBlockEls();
+  if (!blocks.length) return -1;
+  for (let i = 0; i < blocks.length; i++) {
+    const r = blocks[i].getBoundingClientRect();
+    if (centerY >= r.top && centerY <= r.bottom) return i;
+  }
+  let best = -1, bestDist = Infinity;
+  blocks.forEach((b, i) => {
+    const r = b.getBoundingClientRect();
+    const d = centerY < r.top ? r.top - centerY : centerY - r.bottom;
+    if (d < bestDist) { bestDist = d; best = i; }
+  });
+  return best;
+}
+
 async function openBlockMenu(btn) {
   closeBlockMenu();
   const rect = btn.getBoundingClientRect();
   const total = editor?.blocks?.getBlocksCount?.() ?? 0;
 
-  // Get index from DOM — find the ce-block that contains this toolbar
-  let idx = -1;
-  const toolbar = btn.closest('.ce-toolbar');
-  if (toolbar) {
-    const allBlocks = [...document.querySelectorAll('.ce-block')];
-    // toolbar is sibling/relative to blocks — find by vertical position
-    const toolbarTop = toolbar.getBoundingClientRect().top;
-    let closest = 0, minDist = Infinity;
-    allBlocks.forEach((b, i) => {
-      const dist = Math.abs(b.getBoundingClientRect().top - toolbarTop);
-      if (dist < minDist) { minDist = dist; closest = i; }
-    });
-    idx = closest;
-  }
+  // Resolve the target block from the clicked button's own vertical center,
+  // not the (possibly stale) EditorJS toolbar position.
+  let idx = resolveEditorBlockIndexFromY(rect.top + rect.height / 2);
   if (idx < 0) idx = editor?.blocks?.getCurrentBlockIndex?.() ?? 0;
 
-  // Get current block type and data
+  // Read type + data for just this block (avoid a full-document save)
   let blockType = '';
   let blockData = {};
   try {
-    const saved = await editor.save();
-    const block = saved.blocks[idx];
-    if (block) { blockType = block.type; blockData = block.data; }
+    const api = editor?.blocks?.getBlockByIndex?.(idx);
+    if (api) {
+      blockType = api.name || '';
+      const saved = await api.save();
+      blockData = saved?.data || {};
+    }
   } catch(e) {}
 
   blockMenu = document.createElement('div');
@@ -3353,18 +3371,12 @@ document.addEventListener('mousedown', (e) => {
   e.preventDefault();
   e.stopImmediatePropagation();
 
-  // Find which block this toolbar belongs to
+  // Find which block this settings button belongs to — anchor on the button's
+  // own vertical center, not the (possibly stale) EditorJS toolbar position.
   const holder = document.getElementById('editor');
   if (!holder) return;
-  const toolbar = settingsBtn.closest('.ce-toolbar');
-  if (!toolbar) return;
-  const tRect = toolbar.getBoundingClientRect();
-  const blocks = [...holder.querySelectorAll('.ce-block')];
-  let fromIdx = -1, minDist = Infinity;
-  blocks.forEach((b, i) => {
-    const d = Math.abs(b.getBoundingClientRect().top - tRect.top);
-    if (d < minDist) { minDist = d; fromIdx = i; }
-  });
+  const sRect = settingsBtn.getBoundingClientRect();
+  let fromIdx = resolveEditorBlockIndexFromY(sRect.top + sRect.height / 2);
   if (fromIdx < 0) return;
 
   const startY = e.clientY;
@@ -3374,8 +3386,10 @@ document.addEventListener('mousedown', (e) => {
   _blockDragState = { _didDrag: false };
 
   function onMove(ev) {
-    // Need at least 6px movement to start drag
-    if (!isDragging && Math.abs(ev.clientY - startY) < 6) return;
+    // Require a clear vertical movement before starting a drag, so a normal
+    // click (even with a little pointer jitter) still opens the block menu
+    // instead of being swallowed as a no-op drag.
+    if (!isDragging && Math.abs(ev.clientY - startY) < 10) return;
 
     if (!isDragging) {
       isDragging = true;
