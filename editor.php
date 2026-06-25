@@ -3010,6 +3010,31 @@ class CardsTool {
 // ════════════════════════════════════════
 //  EDITOR
 // ════════════════════════════════════════
+
+// The @editorjs/table tool defines no `sanitize`, so EditorJS falls back to the
+// inline-tools allow-list (which has no <br>) and strips line breaks from cells
+// on save. Allow <br> + inline formatting inside table cells so Shift+Enter
+// breaks survive saving and re-rendering.
+if (typeof Table !== 'undefined' && !Object.prototype.hasOwnProperty.call(Table, 'sanitize')) {
+  Object.defineProperty(Table, 'sanitize', {
+    configurable: true,
+    get() {
+      return {
+        withHeadings: false,
+        content: {
+          br: true,
+          b: true,
+          i: true,
+          u: true,
+          a: { href: true, target: true, rel: true },
+          mark: { class: true },
+          code: true,
+        },
+      };
+    },
+  });
+}
+
 async function initEditor(page) {
   if (!document.getElementById('editor')) return;
 

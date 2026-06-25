@@ -1109,7 +1109,10 @@ function renderTable(d) {
     html += `<tr class="tc-row">`;
     (row || []).forEach(cell => {
       const tag = (withHeadings && ri === 0) ? 'th' : 'td';
-      html += `<${tag} class="tc-cell">${cell || ''}</${tag}>`;
+      // Preserve line breaks: keep saved <br> and also normalize any raw
+      // newlines (e.g. from pasted multi-line text) into <br>.
+      const cellHtml = String(cell || '').replace(/\r\n|\r|\n/g, '<br>');
+      html += `<${tag} class="tc-cell">${cellHtml}</${tag}>`;
     });
     html += `</tr>`;
   });
