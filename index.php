@@ -498,18 +498,28 @@ function isPrimaryNavigationClick(event) {
     && !event.altKey;
 }
 
+function internalPageIdFromLink(link) {
+  let id = link.dataset.pageId || '';
+  if (!id) {
+    const href = link.getAttribute('href') || '';
+    const m = href.match(/^\?page=([^&#]*)/);
+    if (m) { try { id = decodeURIComponent(m[1]); } catch (e) { id = m[1]; } }
+  }
+  return id.replace(/[^A-Za-z0-9_-]/g, '');
+}
+
 function bindViewerPageLinks(root = document) {
-  root.querySelectorAll('a[data-page-id]').forEach(link => {
+  root.querySelectorAll('a[data-page-id], a[href^="?page="]').forEach(link => {
     if (link.dataset.navBound === '1') return;
+    const pageId = internalPageIdFromLink(link);
+    if (!pageId) return;
     link.dataset.navBound = '1';
     link.addEventListener('click', event => {
       if (!isPrimaryNavigationClick(event)) return;
       event.preventDefault();
 
-      const pageId = link.dataset.pageId || '';
       const targetSpaceId = link.dataset.spaceId || '';
       const shouldCloseSearch = link.dataset.closeSearch === '1';
-      if (!pageId) return;
 
       if (shouldCloseSearch) {
         const searchInput = document.getElementById('search-input');

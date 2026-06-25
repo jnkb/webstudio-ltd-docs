@@ -459,6 +459,41 @@ case 'save_page':
     jsonWrite(pageFilePath($id), $page);
     ok();
 
+// ── RENAME PAGE — change a page's id (moves file + ratings, re-parents children) ──
+case 'rename_page':
+    requireAuth();
+    $body  = json_decode(file_get_contents('php://input'), true);
+    $oldId = sanitizePageId($body['id'] ?? '');
+    $newId = sanitizePageId($body['newId'] ?? '');
+    $meta  = is_array($body['meta'] ?? null) ? $body['meta'] : [];
+    if (!$oldId || !$newId) err('Missing id');
+    $oldFile = pageFilePath($oldId);
+    if (!file_exists($oldFile)) err('Page not found', 404);
+    $page = jsonRead($oldFile);
+    if (!$page) err('Page not found', 404);
+    if ($newId !== $oldId && file_exists(pageFilePath($newId))) err('Target id already exists', 409);
+    // Keep the existing content; only apply the edited metadata + the new id.
+    foreach (['title', 'subtitle', 'icon', 'section'] as $k) {
+        if (array_key_exists($k, $meta)) $page[$k] = $meta[$k];
+    }
+    $page['id'] = $newId;
+    if (!jsonWrite(pageFilePath($newId), $page)) err('Failed to write page', 500);
+    if ($newId !== $oldId) {
+        @unlink($oldFile);
+        if (file_exists(pageRatingsPath($oldId)))       @rename(pageRatingsPath($oldId), pageRatingsPath($newId));
+        if (file_exists(pageRatingSummaryPath($oldId))) @rename(pageRatingSummaryPath($oldId), pageRatingSummaryPath($newId));
+        // Re-parent direct children so the page tree stays intact.
+        foreach (pageJsonFiles() as $file) {
+            if ($file === pageFilePath($newId)) continue;
+            $child = jsonRead($file);
+            if ($child && ($child['parentId'] ?? null) === $oldId) {
+                $child['parentId'] = $newId;
+                jsonWrite($file, $child);
+            }
+        }
+    }
+    ok(['id' => $newId]);
+
 // ── SAVE ALL PAGES — bulk save (on reorder, delete, etc.) ──
 case 'save_pages':
     requireAuth();

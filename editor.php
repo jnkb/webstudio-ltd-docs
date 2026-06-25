@@ -396,7 +396,12 @@ $_ogData = (function() {
     </div>
     <div class="modal-field">
       <label data-i18n="modalAddPageName">Page title</label>
-      <input class="field-input" type="text" id="new-title" data-i18n-ph="modalAddPageName" placeholder="Page title" onkeydown="if(event.key==='Enter')confirmAddPage()">
+      <input class="field-input" type="text" id="new-title" data-i18n-ph="modalAddPageName" placeholder="Page title" oninput="updateNewPageIdHint()" onkeydown="if(event.key==='Enter')confirmAddPage()">
+    </div>
+    <div class="modal-field">
+      <label data-i18n="modalAddIdLabel">Page ID (optional)</label>
+      <input class="field-input" type="text" id="new-id" data-i18n-ph="modalAddIdPlaceholder" placeholder="Auto from title" oninput="updateNewPageIdHint()" onkeydown="if(event.key==='Enter')confirmAddPage()">
+      <div id="new-id-hint" data-i18n="modalAddIdHint" style="font-size:11px;color:var(--text3);margin-top:4px;">Leave empty to use the title</div>
     </div>
     <div class="modal-field">
       <label data-i18n="modalAddIcon">Icon (e.g. fa-file)</label>
@@ -461,6 +466,12 @@ $_ogData = (function() {
     <div class="modal-field">
       <label data-i18n="modalAddPageName">Page title</label>
       <input class="field-input" type="text" id="page-edit-title" data-i18n-ph="modalAddPageName" placeholder="Page title" onkeydown="if(event.key==='Enter')confirmPageEdit()">
+    </div>
+    <div class="modal-field">
+      <label data-i18n="modalEditIdLabel">Page ID (URL)</label>
+      <input class="field-input" type="text" id="page-edit-id" data-i18n-ph="modalAddIdPlaceholder" placeholder="Auto from title" oninput="updatePageEditIdHint()" onkeydown="if(event.key==='Enter')confirmPageEdit()">
+      <div id="page-edit-id-hint" style="font-size:11px;color:var(--text3);margin-top:4px;"></div>
+      <div data-i18n="modalEditIdWarn" style="font-size:11px;color:var(--text4);margin-top:2px;">Existing links to this page won't be updated automatically.</div>
     </div>
     <div class="modal-field">
       <label data-i18n="modalEditSubtitle">Description (optional)</label>
@@ -1057,6 +1068,19 @@ async function savePageToServer(page) {
   } catch(e) { console.warn('Save page error:', e); }
 }
 
+// Rename a page's id on the server (renames file + ratings, re-parents children).
+async function renamePageOnServer(oldId, newId, meta) {
+  try {
+    const r = await fetch('api.php?action=rename_page', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: oldId, newId, meta })
+    });
+    const d = await r.json();
+    return !!(d && d.ok);
+  } catch (e) { console.warn('Rename page error:', e); return false; }
+}
+
 // Persist order/parent/section changes to each affected page's own file.
 // Reordering is not a content edit, so updatedAt is intentionally NOT bumped.
 async function persistPages(pages) {
@@ -1114,6 +1138,32 @@ function pageSlug(title) {
     candidate = `${slug}-${counter++}`;
   }
   return candidate;
+}
+
+// Normalize a user-typed page ID to the same charset the backend accepts ([A-Za-z0-9_-]).
+function sanitizeManualId(raw) {
+  return String(raw || '').trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // remove diacritics
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9_-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^[-_]+|[-_]+$/g, '')
+    .slice(0, 60);
+}
+
+// Live hint under the optional ID field in the "New page" modal.
+function updateNewPageIdHint() {
+  const titleEl = document.getElementById('new-title');
+  const idEl = document.getElementById('new-id');
+  const hint = document.getElementById('new-id-hint');
+  if (!titleEl || !idEl || !hint) return;
+  const manual = idEl.value.trim();
+  if (!manual && !titleEl.value.trim()) {
+    hint.textContent = t('modalAddIdHint');
+    return;
+  }
+  const effective = manual ? sanitizeManualId(manual) : pageSlug(titleEl.value.trim());
+  hint.textContent = 'URL: ?page=' + (effective || '…');
 }
 
 function buildPageHref(pageId = '') {
@@ -2421,6 +2471,165 @@ class LocalImageTool {
 // ════════════════════════════════════════
 //  CALLOUT TOOL — 4 typy: info / tip / warning / danger
 // ════════════════════════════════════════
+// ── Inline tool: replaces the built-in Link tool, adding a "link to page" button ──
+// Clicking the link button opens a URL input; the page button to its right opens
+// the internal page picker. So the user can type a URL OR pick an internal page.
+class LinkWithPageTool {
+  static get isInline() { return true; }
+  static get title() { return t('ctLink'); }
+  static get sanitize() { return { a: { href: true, target: true, rel: true, 'data-page-id': true } }; }
+
+  constructor({ api }) {
+    this.api = api;
+    this.button = null;
+    this.wrapper = null;
+    this.input = null;
+    this.pageBtn = null;
+    this.savedRange = null;
+    this.inputOpened = false;
+    this.state = false;
+  }
+
+  render() {
+    this.button = document.createElement('button');
+    this.button.type = 'button';
+    this.button.classList.add(this.api.styles.inlineToolButton);
+    this.button.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
+    return this.button;
+  }
+
+  renderActions() {
+    this.wrapper = document.createElement('div');
+    this.wrapper.className = 'ce-link-actions';
+    this.wrapper.hidden = true;
+
+    this.input = document.createElement('input');
+    this.input.type = 'text';
+    this.input.className = 'ce-link-actions__input';
+    this.input.placeholder = t('ctLinkPlaceholder');
+
+    this.pageBtn = document.createElement('button');
+    this.pageBtn.type = 'button';
+    this.pageBtn.className = 'ce-link-actions__page';
+    this.pageBtn.title = t('linkInternalTitle');
+    this.pageBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15l2.5-2.5L9 10"/></svg>';
+
+    this.input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); this._applyUrl(); }
+      else if (e.key === 'Escape') { e.preventDefault(); this._close(); }
+    });
+    this.pageBtn.addEventListener('mousedown', e => { e.preventDefault(); this._openPicker(); });
+
+    this.wrapper.appendChild(this.input);
+    this.wrapper.appendChild(this.pageBtn);
+    return this.wrapper;
+  }
+
+  surround(range) {
+    if (range) this.savedRange = range.cloneRange();
+    const existing = this._anchorFromNode(range && range.commonAncestorContainer);
+    if (this.input) this.input.value = existing ? (existing.getAttribute('href') || '') : '';
+    this._openActions();
+  }
+
+  checkState(selection) {
+    const a = this._anchorFromNode(selection && selection.anchorNode);
+    this.state = !!a;
+    if (this.button) this.button.classList.toggle(this.api.styles.inlineToolButtonActive, this.state);
+    if (a) {
+      if (selection && selection.rangeCount) this.savedRange = selection.getRangeAt(0).cloneRange();
+      if (this.input) this.input.value = a.getAttribute('href') || '';
+      this._openActions();
+    } else if (!this.inputOpened) {
+      this._closeActions();
+    }
+    return this.state;
+  }
+
+  _openActions() {
+    if (!this.wrapper) return;
+    this.wrapper.hidden = false;
+    this.inputOpened = true;
+    setTimeout(() => { if (this.input) { this.input.focus(); this.input.select(); } }, 0);
+  }
+
+  _closeActions() {
+    if (!this.wrapper) return;
+    this.wrapper.hidden = true;
+    this.input.value = '';
+    this.inputOpened = false;
+  }
+
+  _openPicker() {
+    if (typeof window.openPagePicker !== 'function') return;
+    // Capture the range LOCALLY: closing the toolbar triggers clear() which nulls
+    // this.savedRange before the user picks a page.
+    const savedRange = this.savedRange ? this.savedRange.cloneRange() : null;
+    const rect = this.input ? this.input.getBoundingClientRect() : null;
+    this._close();
+    window.openPagePicker(rect, { excludeId: S.currentPageId }).then(pageId => {
+      if (!pageId) return;
+      this._applyLink(savedRange, '?page=' + encodeURIComponent(pageId), pageId);
+    });
+  }
+
+  _applyUrl() {
+    const v = (this.input.value || '').trim();
+    const savedRange = this.savedRange ? this.savedRange.cloneRange() : null;
+    if (!v) { this._applyLink(savedRange, null, null); return; }
+    const isInternal = /^\?page=/.test(v);
+    const href = isInternal ? v : (v.match(/^https?:\/\//) ? v : 'https://' + v);
+    const pageId = isInternal ? decodeURIComponent(v.replace(/^\?page=/, '')) : null;
+    this._applyLink(savedRange, href, pageId);
+  }
+
+  _applyLink(savedRange, href, pageId) {
+    if (!savedRange) { this._close(); return; }
+    const sel = window.getSelection();
+    let host = savedRange.commonAncestorContainer;
+    if (host && host.nodeType === 3) host = host.parentElement;
+    const editable = host && host.closest ? host.closest('[contenteditable="true"]') : null;
+    if (editable) editable.focus();
+    sel.removeAllRanges();
+    sel.addRange(savedRange);
+    if (!href) {
+      document.execCommand('unlink', false, null);
+    } else {
+      document.execCommand('createLink', false, href);
+      const a = this._anchorFromNode(sel.anchorNode);
+      if (a) {
+        a.setAttribute('href', href);
+        if (pageId) { a.setAttribute('data-page-id', pageId); a.removeAttribute('target'); }
+        else { a.setAttribute('target', '_blank'); a.setAttribute('rel', 'noopener'); }
+        // Collapse the caret after the link so the toolbar doesn't immediately reopen.
+        const after = document.createRange();
+        after.setStartAfter(a);
+        after.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(after);
+      }
+    }
+    if (editable) editable.dispatchEvent(new Event('input', { bubbles: true }));
+    this._close();
+  }
+
+  _close() {
+    this._closeActions();
+    try { this.api.inlineToolbar.close(); } catch (e) {}
+  }
+
+  _anchorFromNode(node) {
+    if (!node) return null;
+    if (node.nodeType === 3) node = node.parentElement;
+    return node && node.closest ? node.closest('a') : null;
+  }
+
+  clear() {
+    this._closeActions();
+    this.savedRange = null;
+  }
+}
+
 class CalloutTool {
   static get toolbox() {
     return {
@@ -3101,6 +3310,7 @@ async function initEditor(page) {
     delimiter: { class: DelimiterTool },
     inlineCode: { class: InlineCode },
     marker: { class: Marker },
+    link: { class: LinkWithPageTool },
     table: { class: Table, inlineToolbar: true },
     image: { class: LocalImageTool, inlineToolbar: false },
     warning: { class: CalloutTool, inlineToolbar: false },
@@ -3809,6 +4019,8 @@ function openPageEdit(pageId) {
   document.getElementById('page-edit-subtitle').value = page.subtitle || '';
   document.getElementById('page-edit-icon').value = page.icon || 'fa-file';
   document.getElementById('page-edit-section').value = page.section || '';
+  document.getElementById('page-edit-id').value = page.id || '';
+  updatePageEditIdHint();
 
   const preview = document.getElementById('page-edit-icon-preview');
   preview.innerHTML = `<i class="fa-solid ${page.icon || 'fa-file'}"></i>`;
@@ -3837,17 +4049,55 @@ function previewPageEditIcon(val) {
   document.getElementById('page-edit-icon-preview').innerHTML = `<i class="fa-solid ${v}"></i>`;
 }
 
+// Live URL preview under the editable ID field in the "Edit page" modal.
+function updatePageEditIdHint() {
+  const idEl = document.getElementById('page-edit-id');
+  const hint = document.getElementById('page-edit-id-hint');
+  if (!idEl || !hint) return;
+  const cur = S.pages.find(p => p.id === editingPageId);
+  const eff = sanitizeManualId(idEl.value.trim()) || (cur ? cur.id : '');
+  hint.textContent = 'URL: ?page=' + (eff || '…');
+}
+
 async function confirmPageEdit() {
   const page = S.pages.find(p => p.id === editingPageId);
   if (!page) return;
+  const oldId = page.id;
+
+  // Optional new page id (renames the page). Empty/unchanged keeps the current id.
+  let newId = oldId;
+  const newIdRaw = document.getElementById('page-edit-id').value.trim();
+  if (newIdRaw) {
+    const sanitized = sanitizeManualId(newIdRaw);
+    if (sanitized && sanitized !== oldId) {
+      if (S.pages.some(p => p.id === sanitized)) { showToast(t('toastIdTaken')); return; }
+      newId = sanitized;
+    }
+  }
+
   page.title = document.getElementById('page-edit-title').value.trim() || t('pageUntitled');
   page.subtitle = document.getElementById('page-edit-subtitle').value.trim();
   page.icon = document.getElementById('page-edit-icon').value.trim() || 'fa-file';
   page.section = document.getElementById('page-edit-section').value.trim();
+
+  if (newId !== oldId) {
+    const ok = await renamePageOnServer(oldId, newId, {
+      title: page.title, subtitle: page.subtitle, icon: page.icon, section: page.section,
+    });
+    if (!ok) { showToast(t('toastIdTaken')); return; }
+    page.id = newId;
+    S.pages.forEach(p => { if (p.parentId === oldId) p.parentId = newId; });
+    if (S.currentPageId === oldId) S.currentPageId = newId;
+    editingPageId = newId;
+  }
+
   closeModal('page-edit-modal');
   await save();
   renderNav();
-  if (S.currentPageId === editingPageId) renderPage();
+  if (S.currentPageId === editingPageId) {
+    renderPage();
+    if (newId !== oldId) history.replaceState(null, '', buildPageHref(newId));
+  }
   showToast(t('toastPageEdited'));
 }
 
@@ -3860,9 +4110,11 @@ function openAddPage(parentId, sectionHint = '') {
   S.addParentId = parentId;
   selectedTemplate = 'blank';
   document.getElementById('new-title').value = '';
+  document.getElementById('new-id').value = '';
   document.getElementById('new-icon').value = 'fa-file';
   document.getElementById('new-section').value = sectionHint;
   previewIcon('fa-file');
+  updateNewPageIdHint();
   buildIconGrid();
   buildTemplateGrid();
   openModal('add-modal');
@@ -3912,6 +4164,21 @@ function showConfirm({ title, msg, icon = 'fa-trash', iconType = 'danger', okLab
 async function confirmAddPage() {
   const title = document.getElementById('new-title').value.trim();
   if (!title) return;
+
+  const manualIdRaw = document.getElementById('new-id').value.trim();
+  let pageId;
+  if (manualIdRaw) {
+    pageId = sanitizeManualId(manualIdRaw);
+    if (!pageId) {
+      pageId = pageSlug(title);
+    } else if (S.pages.some(p => p.id === pageId)) {
+      showToast(t('toastIdTaken'));
+      return;
+    }
+  } else {
+    pageId = pageSlug(title);
+  }
+
   let iconVal = document.getElementById('new-icon').value.trim() || 'fa-file';
   if (!iconVal.startsWith('fa-')) iconVal = 'fa-' + iconVal;
   const section = document.getElementById('new-section').value.trim() || null;
@@ -3923,7 +4190,7 @@ async function confirmAddPage() {
   );
 
   const page = {
-    id: pageSlug(title),
+    id: pageId,
     spaceId: S.currentSpaceId,
     parentId: S.addParentId,
     title, icon: iconVal,
@@ -5696,8 +5963,14 @@ document.addEventListener('DOMContentLoaded', () => {
 <div class="callout-toolbar" id="callout-link-bar" style="gap:4px;padding:6px 8px;">
   <i class="fa-solid fa-link" style="color:var(--text3);font-size:12px;margin-right:2px;"></i>
   <input id="ct-link-input" type="text" placeholder="https://..." style="border:none;outline:none;background:none;font:13px var(--font);color:var(--text);width:220px;">
+  <button class="ct-btn" id="ct-link-page" data-i18n-attr="title" data-i18n="linkInternalTitle" title="Link to page"><i class="fa-solid fa-file-lines"></i></button>
   <button class="ct-btn" id="ct-link-ok" data-i18n-attr="title" data-i18n="btnSaveChanges" title="Confirm"><i class="fa-solid fa-check" style="color:#16a34a;"></i></button>
   <button class="ct-btn" id="ct-link-remove" data-i18n-attr="title" data-i18n="ctLinkRemove" title="Remove link"><i class="fa-solid fa-link-slash" style="color:#ef4444;"></i></button>
+</div>
+<!-- Internal page picker popup (shared: inline link tool + callout link bar) -->
+<div class="link-page-picker" id="link-page-picker">
+  <input id="lpp-input" type="text" data-i18n-ph="linkPickerPlaceholder" placeholder="Search pages…">
+  <div class="lpp-results" id="lpp-results"></div>
 </div>
 
 <div class="confirm-overlay" id="confirm-overlay">
@@ -5713,6 +5986,86 @@ document.addEventListener('DOMContentLoaded', () => {
 </div>
 
 <script>
+// ── Internal page picker (shared by inline link tool + callout link bar) ──
+(function() {
+  const pop = document.getElementById('link-page-picker');
+  if (!pop) return;
+  const input = document.getElementById('lpp-input');
+  const results = document.getElementById('lpp-results');
+  let resolveFn = null;
+  let excludeId = null;
+
+  function finish(result) {
+    pop.style.display = 'none';
+    document.removeEventListener('mousedown', onDocDown, true);
+    const r = resolveFn; resolveFn = null;
+    if (r) r(result);
+  }
+
+  function renderResults() {
+    const q = input.value.trim().toLowerCase();
+    let list = (S.pages || []).filter(p =>
+      p.spaceId === S.currentSpaceId && p.id !== excludeId
+    );
+    if (q) list = list.filter(p =>
+      p.title.toLowerCase().includes(q) || (p.subtitle || '').toLowerCase().includes(q)
+    );
+    list = list.slice(0, 8);
+    if (!list.length) {
+      results.innerHTML = `<div class="search-empty">${esc(t('linkPickerEmpty'))}</div>`;
+      return;
+    }
+    results.innerHTML = list.map(p => `
+      <button type="button" class="search-result-item lpp-item" data-id="${esc(p.id)}">
+        <i class="fa-solid ${esc(p.icon || 'fa-file')}"></i>
+        <div>
+          <div class="search-result-title">${esc(p.title)}</div>
+          ${p.subtitle ? `<div class="search-result-path">${esc(p.subtitle.slice(0,60))}</div>` : ''}
+        </div>
+      </button>`).join('');
+    results.querySelectorAll('.lpp-item').forEach(btn => {
+      btn.addEventListener('mousedown', e => { e.preventDefault(); finish(btn.dataset.id); });
+    });
+  }
+
+  function onDocDown(e) {
+    if (pop.contains(e.target)) return;
+    finish(null);
+  }
+
+  input.addEventListener('input', renderResults);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { e.preventDefault(); finish(null); }
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      const first = results.querySelector('.lpp-item');
+      if (first) finish(first.dataset.id);
+    }
+  });
+
+  window.openPagePicker = function(rect, opts = {}) {
+    excludeId = opts.excludeId || null;
+    return new Promise(resolve => {
+      resolveFn = resolve;
+      input.value = '';
+      renderResults();
+      pop.style.visibility = 'hidden';
+      pop.style.display = 'block';
+      const pw = pop.offsetWidth, ph = pop.offsetHeight;
+      let left = rect ? (rect.left + rect.width / 2 - pw / 2) : (window.innerWidth / 2 - pw / 2);
+      let top = rect ? (rect.bottom + 8) : 120;
+      if (rect && (rect.bottom + ph + 8) > window.innerHeight) top = rect.top - ph - 8;
+      left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
+      top = Math.max(8, top);
+      pop.style.left = left + 'px';
+      pop.style.top = top + 'px';
+      pop.style.visibility = 'visible';
+      setTimeout(() => input.focus(), 0);
+      setTimeout(() => document.addEventListener('mousedown', onDocDown, true), 0);
+    });
+  };
+})();
+
 // ── Callout inline toolbar ──────────────────────────────────
 (function() {
   const toolbar   = document.getElementById('callout-toolbar');
@@ -5815,11 +6168,23 @@ document.addEventListener('DOMContentLoaded', () => {
     restoreRange();
     const url = linkInput.value.trim();
     if (url) {
-      const fullUrl = url.match(/^https?:\/\//) ? url : 'https://' + url;
+      const sel0 = window.getSelection();
+      const calloutEl = isInCallout(sel0 && sel0.anchorNode);
+      if (calloutEl) { calloutEl.focus(); restoreRange(); }
+      const isInternal = /^\?page=/.test(url);
+      const fullUrl = isInternal ? url : (url.match(/^https?:\/\//) ? url : 'https://' + url);
       document.execCommand('createLink', false, fullUrl);
       const sel = window.getSelection();
       const a = sel?.anchorNode?.parentElement?.closest('a');
-      if (a) a.target = '_blank';
+      if (a) {
+        if (isInternal) {
+          a.setAttribute('href', url);
+          a.setAttribute('data-page-id', decodeURIComponent(url.replace(/^\?page=/, '')));
+          a.removeAttribute('target');
+        } else {
+          a.target = '_blank';
+        }
+      }
       const activeEl = isInCallout(sel?.anchorNode);
       if (activeEl) activeEl.dispatchEvent(new Event('input'));
     }
@@ -5827,6 +6192,16 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   document.getElementById('ct-link-ok').addEventListener('mousedown', e => { e.preventDefault(); applyLink(); });
+  document.getElementById('ct-link-page').addEventListener('mousedown', e => {
+    e.preventDefault();
+    if (typeof window.openPagePicker !== 'function') return;
+    const rect = linkBar.getBoundingClientRect();
+    window.openPagePicker(rect, { excludeId: S.currentPageId }).then(pageId => {
+      if (!pageId) return;
+      linkInput.value = '?page=' + encodeURIComponent(pageId);
+      applyLink();
+    });
+  });
   linkInput.addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); applyLink(); }
     if (e.key === 'Escape') { hideAll(); }

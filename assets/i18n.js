@@ -254,6 +254,12 @@ const TRANSLATIONS = {
         ctBold: 'Bold', ctItalic: 'Italic', ctUnderline: 'Underline',
         ctLink: 'Link', ctRemoveFormat: 'Remove formatting',
         ctLinkPlaceholder: 'https://', ctLinkRemove: 'Remove link',
+        // ── Internal link / page picker ──
+        linkInternalTitle: 'Link to page', linkPickerPlaceholder: 'Search pages…', linkPickerEmpty: 'No pages found',
+        // ── Page ID field ──
+        modalAddIdLabel: 'Page ID (optional)', modalAddIdPlaceholder: 'Auto from title',
+        modalAddIdHint: 'Leave empty to use the title', toastIdTaken: 'This ID is already in use',
+        modalEditIdLabel: 'Page ID (URL)', modalEditIdWarn: "Changing the ID changes the URL. Existing links to this page won't be updated automatically.",
         // ── Icon picker ──
         iconPickerSearch: 'Search icons...',
         // ── Drag & drop ──
@@ -430,6 +436,12 @@ const TRANSLATIONS = {
         ctBold: 'Fett', ctItalic: 'Kursiv', ctUnderline: 'Unterstrichen',
         ctLink: 'Link', ctRemoveFormat: 'Formatierung entfernen',
         ctLinkPlaceholder: 'https://', ctLinkRemove: 'Link entfernen',
+        // ── Internal link / page picker ──
+        linkInternalTitle: 'Auf Seite verlinken', linkPickerPlaceholder: 'Seiten suchen…', linkPickerEmpty: 'Keine Seiten gefunden',
+        // ── Page ID field ──
+        modalAddIdLabel: 'Seiten-ID (optional)', modalAddIdPlaceholder: 'Automatisch aus Titel',
+        modalAddIdHint: 'Leer lassen, um den Titel zu verwenden', toastIdTaken: 'Diese ID ist bereits vergeben',
+        modalEditIdLabel: 'Seiten-ID (URL)', modalEditIdWarn: 'Das Ändern der ID ändert die URL. Bestehende Links auf diese Seite werden nicht automatisch aktualisiert.',
         iconPickerSearch: 'Icons suchen...',
         dragReorder: 'Zum Neuordnen ziehen',
     },
@@ -633,6 +645,12 @@ const TRANSLATIONS = {
         ctBold: 'Tučné', ctItalic: 'Kurzíva', ctUnderline: 'Podčiarknutie',
         ctLink: 'Odkaz', ctRemoveFormat: 'Odstrániť formátovanie',
         ctLinkPlaceholder: 'https://', ctLinkRemove: 'Odstrániť odkaz',
+        // ── Internal link / page picker ──
+        linkInternalTitle: 'Odkaz na stránku', linkPickerPlaceholder: 'Hľadať stránky…', linkPickerEmpty: 'Žiadne stránky',
+        // ── Page ID field ──
+        modalAddIdLabel: 'ID stránky (voliteľné)', modalAddIdPlaceholder: 'Automaticky z názvu',
+        modalAddIdHint: 'Nechajte prázdne pre použitie názvu', toastIdTaken: 'Toto ID sa už používa',
+        modalEditIdLabel: 'ID stránky (URL)', modalEditIdWarn: 'Zmena ID zmení URL. Existujúce odkazy na túto stránku sa neaktualizujú automaticky.',
         // ── Icon picker ──
         iconPickerSearch: 'Hľadaj ikony...',
         // ── Drag & drop ──
