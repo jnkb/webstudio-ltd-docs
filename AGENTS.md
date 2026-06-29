@@ -8,7 +8,7 @@ Use this file as the default working context for changes in this repository. Kee
 - No framework, no database, no build step, no package manager.
 - Runtime storage is JSON files under `data/` and uploaded assets under `images/`.
 - The app is split into two entry points: [index.php](index.php) is the public read-only viewer (no EditorJS), and [editor.php](editor.php) is the full editor/admin UI.
-- Shared front-end assets live in `assets/`: [assets/app.css](assets/app.css) (styles) and [assets/i18n.js](assets/i18n.js) (icon list + `TRANSLATIONS` + `DEFAULT_INTERFACE_LANG` + `LANG_LOCALES`). Both [index.php](index.php) and [editor.php](editor.php) link these files.
+- Shared front-end assets live in `assets/`: [assets/app.css](assets/app.css) (styles), [assets/i18n.js](assets/i18n.js) (icon list + `TRANSLATIONS` + `DEFAULT_INTERFACE_LANG` + `LANG_LOCALES`), and [assets/shared.js](assets/shared.js) (shared vanilla-JS helpers used by both entry points: i18n `t()`/`applyTranslations()`, utilities like `esc`/`showToast`/`formatDate`, settings/theme helpers, translate widget, TOC/scroll-spy, feedback, search helpers, OG image, mobile/reading-mode/share, hover preview, and reader-level keyboard shortcuts). Both [index.php](index.php) and [editor.php](editor.php) link these files in order: `i18n.js` → `shared.js` → inline script.
 - For product overview, setup, screenshots, and roadmap, prefer [README.md](README.md) instead of duplicating it here.
 
 ## Primary files
@@ -17,13 +17,13 @@ Use this file as the default working context for changes in this repository. Kee
 - [editor.php](editor.php): the full single-file editor app (the original `index.php`). EditorJS-based editing, auth modal flows, settings, page/space CRUD. Open it directly to edit; visitors never need it.
 - [api.php](api.php): JSON API for loading and saving spaces, settings, pages, and images. `load`, `load_page`, and `save_rating` are public; mutations require auth.
 - [auth.php](auth.php): setup wizard, login/logout, session state, password hashing, rate limiting.
-- [assets/app.css](assets/app.css), [assets/i18n.js](assets/i18n.js): shared CSS and i18n/constants linked by both [index.php](index.php) and [editor.php](editor.php).
+- [assets/app.css](assets/app.css), [assets/i18n.js](assets/i18n.js), [assets/shared.js](assets/shared.js): shared CSS, i18n/constants, and shared vanilla-JS helpers linked by both [index.php](index.php) and [editor.php](editor.php).
 - [data/](data/): persisted site settings, spaces, auth data, and one JSON file per page.
 - [.htaccess](.htaccess): Apache routing and protection expectations.
 
 ## Architecture notes
 
-- [index.php](index.php) (viewer) and [editor.php](editor.php) (editor) share the same data contract, OG/meta head, layout, and `assets/app.css` / `assets/i18n.js`. Keep their shared behavior in sync when relevant.
+- [index.php](index.php) (viewer) and [editor.php](editor.php) (editor) share the same data contract, OG/meta head, layout, and `assets/app.css` / `assets/i18n.js` / `assets/shared.js`. Keep their shared behavior in sync when relevant.
 - The viewer renders page content with a custom `renderBlocks()` that emits the same classes EditorJS produced (`.ce-block`, `.ce-header`, `.cdx-list`, `.callout-block`, `.tl-*`, etc.) so `assets/app.css` styles it identically. Do NOT add an EditorJS dependency to `index.php`.
 - Client state lives in the global `S` object in each file. Prefer local, incremental changes over introducing abstractions.
 - Page content is lazy-loaded: `api.php?action=load` returns metadata, `api.php?action=load_page&id=...` returns full content.
