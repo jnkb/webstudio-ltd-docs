@@ -8,11 +8,21 @@ The main changes are:
 - **Split public viewer and admin editor** — `index.php` is now the read-only public frontend, while `editor.php` contains the authenticated editing UI.
 - **Shared frontend assets** — styles and translations were moved into `assets/app.css` and `assets/i18n.js` so both entry points stay in sync.
 - **German language support** — the interface now includes built-in German translations with centralized language configuration.
+- **Broader translation coverage** — UI texts that were still hardcoded are now routed through the shared i18n layer.
 - **Optional Google Translate button** — the translate button is now optional and can be disabled in settings.
 - **Saved page feedback** — page helpfulness feedback is now persisted through the API.
 - **Configurable share section visibility** — the share block in the page sidebar can be shown or hidden from settings.
+- **Optional single-space navigation mode** — the top space tabs can be hidden automatically when only one space exists.
 - **Role-aware shortcuts** — admin-only keyboard shortcuts are hidden or blocked for non-admin users.
+- **Built-in password change flow** — admins can change the password from settings without rerunning setup.
 - **HTML-capable footer content** — footer areas now support full HTML content instead of plain text only.
+- **Manual space reordering** — spaces can be moved left or right directly in the editor.
+- **Safer page deletion** — removed pages and related rating files are archived into `data/trash/pages` instead of being deleted outright.
+- **Editable page IDs and internal link picker** — page URLs can be customized and internal links can be selected from a searchable page list.
+- **Clipboard image paste support** — pasted screenshots and copied images can be uploaded directly into the editor.
+- **Selectable divider styles** — delimiter blocks can render as stars, a solid line, a dashed line, or dots.
+- **Preserved table line breaks** — multi-line table cells now keep their line breaks during save and render.
+- **PHP 8.5 compatibility updates** — the fork includes fixes for current PHP deprecations and edge cases.
 - **Header slash menu fix** — the header slash menu behavior was corrected in the customized frontend.
 
 ---
@@ -74,15 +84,19 @@ Try it yourself: **[docs.web-studio.sk](https://docs.web-studio.sk)** — passwo
 
 **Requirements:** Any PHP 7.4+ hosting with write permissions. That's it.
 
+This fork also includes compatibility fixes for current PHP 8.5 behavior.
+
 ```bash
 # 1. Clone
-git clone https://github.com/webstudio-ltd/docs.git
+git clone https://github.com/jnkb/webstudio-ltd-docs.git
 
 # 2. Upload the project files to your PHP server
 #    keep the folder structure intact (`assets/`, `data/`, `images/`)
 
-# 3. Open in browser → set your admin password → start writing
+# 3. Open editor.php in your browser → set your admin password → start writing
 ```
+
+Readers use `index.php`. Admin editing, settings, and authentication live in `editor.php`.
 
 No `npm install`. No environment variables. No database migrations. No Docker. Just upload the project and you have a documentation site.
 
@@ -95,22 +109,26 @@ No `npm install`. No environment variables. No database migrations. No Docker. J
 - **Block picker** — click ⊕ to browse all available blocks
 - **Headings, paragraphs, lists, checklists** — the basics, done right
 - **Code blocks** with syntax highlighting (Prism.js, 200+ languages) and one-click copy button
-- **Tables** with header rows
-- **Images** — upload, paste URL, or drag & drop
+- **Tables** with header rows and preserved line breaks inside cells
+- **Images** — upload, paste from clipboard, paste a URL, or drag & drop
 - **Callouts** — info, tip, warning, danger with custom titles
 - **Collapsible sections** — perfect for FAQs
 - **Timeline** — ideal for changelogs and release notes
 - **Cards** — icon grids with links to internal pages or external URLs
 - **Video embeds** — YouTube, Vimeo
-- **Quotes, delimiters, inline code, markers**
+- **Quotes, delimiters, inline code, markers** — including selectable divider styles
+- **Internal page links** — searchable page picker for linking cards and rich text to other docs pages
+- **Editable page IDs** — control clean URLs manually when you need stable or custom slugs
 - **Drag & drop** block reordering with visual drop indicator
 - **Undo / Redo** with full history (Ctrl+Z / Ctrl+Shift+Z)
 
 ### Navigation & Search
-- **Spaces** — separate documentation sections (like GitBook spaces)
-- **Tree structure** — pages, subpages, sections, drag & drop reorder
+- **Spaces** — separate documentation sections (like GitBook spaces), with manual left/right reordering in the editor
+- **Tree structure** — pages, subpages, sections, and nested drag & drop reorder
 - **Full-text search** — Ctrl+K searches titles, subtitles, and page content
 - **Table of contents** — auto-generated from headings with scroll spy
+- **Per-page feedback** — readers can mark a page as helpful, neutral, or not helpful, and ratings are saved
+- **Optional single-space mode** — hide the top space switcher when your docs only use one space
 - **Keyboard navigation** — ← → for prev/next page, ? for all shortcuts
 - **Breadcrumbs** and **previous/next** page links
 
@@ -126,20 +144,25 @@ No `npm install`. No environment variables. No database migrations. No Docker. J
 - **Dynamic OG images** — auto-generated with page title, description and your brand colors
 - **Clean URLs** — `?page=installation` not `?page=_x7f2k9`
 - **Twitter cards, meta descriptions, canonical URLs** — all automatic
+- **Configurable share sidebar** — show or hide the share block in the page sidebar from settings
 - **Per-page titles** — `Installation — My Docs` in browser tab
 
 ### Security
 - **Setup wizard** — first-run password setup with strength validation
 - **Bcrypt hashing** — passwords stored securely, never in plain text
 - **Rate limiting** — 10 attempts per 5 minutes, brute force protection
+- **Change password flow** — update the admin password later from Settings without rerunning setup
 - **`.htaccess` protection** — blocks direct access to data files
 - **Optional simple access gate** — hides the site behind a basic token link and browser cookie
+- **Install-scoped cookies and sessions** — multiple docs instances on the same domain do not collide with each other
 - **Viewer-only iframe support** — `index.php` may be embedded; `editor.php` remains frame-blocked
 - **No database** — no SQL injection possible. Ever.
 
 ### Developer-Friendly
 - **Easy to extend** — it's just HTML, CSS, JS and PHP. No framework, no abstraction layers
-- **i18n ready** — English, German, and Slovak built-in, add your language by copying one object
+- **i18n ready** — English, German, and Slovak built-in, with broader translation coverage across the UI
+- **Safer file-based cleanup** — deleted pages and related rating files are moved into `data/trash/pages`
+- **PHP 7.4+ friendly** — updated to stay compatible with current PHP 8.5 behavior
 - **Page templates** — Blank, Documentation, Changelog, API Reference, Tutorial, FAQ
 - **Auto-save** — never lose work
 
@@ -189,6 +212,7 @@ We're building a **Premium version** with advanced features for teams and busine
 
 ```
 your-docs-site/
+├── access_guard.php ← Shared optional access gate helper
 ├── index.php      ← Public viewer (read-only frontend + OG tag generation)
 ├── editor.php     ← Admin editor UI
 ├── api.php        ← Backend API (pages, spaces, images, settings)
@@ -203,10 +227,14 @@ your-docs-site/
 │   ├── auth.json      ← Hashed password (bcrypt)
 │   ├── settings.json  ← Site configuration
 │   ├── spaces.json    ← Space definitions
-│   └── pages/         ← One JSON file per page
+│   ├── pages/         ← One JSON file per page
+│   └── trash/
+│       └── pages/     ← Archived deleted pages and rating files
 └── images/
     └── og/            ← Auto-generated social sharing images
 ```
+
+In this fork, `index.php` is the public reader frontend and iframe entry point. Open `editor.php` when you want to log in, edit content, manage spaces, or change settings. When the optional access gate is enabled, `access_guard.php` enforces the unlock cookie for both flows.
 
 ### Adding a Language
 
@@ -255,9 +283,11 @@ https://your-domain.example/?token=my-share-token-123
 Notes:
 
 - The first non-empty line of `data/access_key.txt` is used as the token value.
+- Lines starting with `#` are ignored, so you can keep short comments in the file.
 - If `data/access_key.txt` is empty or missing, the simple access gate is disabled.
 - The token is only needed for the initial unlock request; the viewer no longer appends it to internal page URLs after that.
 - The cookie is browser-based, so each browser or device must be unlocked once.
+- Access cookies and auth sessions are namespaced per installation path, so multiple docs instances on the same domain stay isolated.
 - If you embed the docs in an iframe, only `index.php` is intended to be embedded. `editor.php` stays frame-blocked on purpose.
 - For iframe embedding, use HTTPS so the access-gate cookie can be sent reliably by modern browsers.
 - This is meant to reduce accidental exposure, not to replace real authentication or server-side security.
