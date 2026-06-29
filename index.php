@@ -1419,20 +1419,70 @@ function highlight(text, q) {
   return esc(text).replace(new RegExp(`(${escaped})`, 'gi'), '<mark>$1</mark>');
 }
 
+// Collect all searchable plain text from a block, across every tool's data
+// shape (paragraph, header, list, checklist, quote, code, table, image,
+// callout, timeline, collapse, video, cards). Returns an array of cleaned
+// text fragments so callers can match + build snippets uniformly.
+function getBlockSearchText(block) {
+  const d = block?.data || {};
+  const parts = [];
+  const push = (v) => {
+    if (typeof v !== 'string') return;
+    const clean = v.replace(/<[^>]+>/g, '').trim();
+    if (clean) parts.push(clean);
+  };
+
+  // Simple string fields shared by several tools
+  ['text', 'caption', 'title', 'message', 'body', 'code'].forEach(f => push(d[f]));
+
+  // List / nested-list items: { content, items[] }
+  // Checklist items: { text, checked }
+  // Timeline items: { date, title, desc }
+  if (Array.isArray(d.items)) {
+    const walkItems = (items) => {
+      items.forEach(it => {
+        if (typeof it === 'string') { push(it); return; }
+        if (!it || typeof it !== 'object') return;
+        push(it.content);
+        push(it.text);
+        push(it.date);
+        push(it.title);
+        push(it.desc);
+        if (Array.isArray(it.items)) walkItems(it.items);
+      });
+    };
+    walkItems(d.items);
+  }
+
+  // Table cells: array of arrays of strings
+  if (Array.isArray(d.content)) {
+    d.content.forEach(row => {
+      if (Array.isArray(row)) row.forEach(cell => push(cell));
+    });
+  }
+
+  // Cards: array of { icon, title, desc, link }
+  if (Array.isArray(d.cards)) {
+    d.cards.forEach(c => {
+      if (!c) return;
+      push(c.title);
+      push(c.desc);
+    });
+  }
+
+  return parts;
+}
+
 function getPageTextSnippet(page, q) {
   const blocks = page.content?.blocks || [];
+  const ql = q.toLowerCase();
   for (const b of blocks) {
-    const txt = (b.data?.text || b.data?.caption || b.data?.title || '').replace(/<[^>]+>/g, '').trim();
-    if (txt.toLowerCase().includes(q.toLowerCase())) {
-      const idx = txt.toLowerCase().indexOf(q.toLowerCase());
-      const start = Math.max(0, idx - 30);
-      const snippet = (start > 0 ? '…' : '') + txt.slice(start, idx + 80) + (txt.length > idx + 80 ? '…' : '');
-      return highlight(snippet, q);
-    }
-    if (b.data?.items) {
-      for (const item of b.data.items) {
-        const itemText = (typeof item === 'string' ? item : item.content || '').replace(/<[^>]+>/g, '').trim();
-        if (itemText.toLowerCase().includes(q.toLowerCase())) return highlight(itemText.slice(0, 100), q);
+    for (const txt of getBlockSearchText(b)) {
+      if (txt.toLowerCase().includes(ql)) {
+        const idx = txt.toLowerCase().indexOf(ql);
+        const start = Math.max(0, idx - 30);
+        const snippet = (start > 0 ? '…' : '') + txt.slice(start, idx + 80) + (txt.length > idx + 80 ? '…' : '');
+        return highlight(snippet, q);
       }
     }
   }
@@ -1447,12 +1497,7 @@ function handleSearch(q) {
   const results = S.pages.filter(p =>
     p.title.toLowerCase().includes(ql) ||
     (p.subtitle || '').toLowerCase().includes(ql) ||
-    (p.content?.blocks || []).some(b => {
-      const txt = (b.data?.text || b.data?.caption || b.data?.title || '').replace(/<[^>]+>/g, '');
-      if (txt.toLowerCase().includes(ql)) return true;
-      if (b.data?.items) return b.data.items.some(i => (typeof i === 'string' ? i : i.content || '').toLowerCase().includes(ql));
-      return false;
-    })
+    (p.content?.blocks || []).some(b => getBlockSearchText(b).some(txt => txt.toLowerCase().includes(ql)))
   ).slice(0, 8);
 
   if (!results.length) {
