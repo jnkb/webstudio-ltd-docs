@@ -2870,7 +2870,15 @@ class VideoTool {
   static get isReadOnlySupported() { return true; }
   constructor({ data, readOnly }) {
     this.readOnly = readOnly;
-    this.data = { url: data.url || '', embedUrl: data.embedUrl || '' };
+    this.data = {
+      url: data.url || '',
+      embedUrl: data.embedUrl || '',
+      src: data.src || '',
+      filename: data.filename || '',
+      mime: data.mime || '',
+    };
+    this._uploading = false;
+    this._progressEl = null;
   }
   _toEmbed(url) {
     // YouTube
@@ -2886,46 +2894,167 @@ class VideoTool {
   render() {
     this._el = document.createElement('div');
     this._el.className = 'video-block';
-    if (this.data.embedUrl) {
-      this._renderVideo();
+    if (this.data.src) {
+      this._renderFileVideo();
+    } else if (this.data.embedUrl) {
+      this._renderEmbed();
     } else if (!this.readOnly) {
       this._renderInput();
     }
     return this._el;
   }
-  _renderVideo() {
+  _appendReplaceBar() {
+    if (this.readOnly) return;
+    const bar = document.createElement('div');
+    bar.className = 'video-replace-bar';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = t('videoReplace');
+    btn.onclick = () => {
+      this.data.url = ''; this.data.embedUrl = '';
+      this.data.src = ''; this.data.filename = ''; this.data.mime = '';
+      this._el.innerHTML = '';
+      this._renderInput();
+      markDirty();
+      scheduleUndoSnapshot();
+    };
+    bar.appendChild(btn);
+    this._el.appendChild(bar);
+  }
+  _renderEmbed() {
     this._el.innerHTML = `<iframe src="${this.data.embedUrl}" allowfullscreen allow="autoplay; encrypted-media"></iframe>`;
-    if (!this.readOnly) {
-      const bar = document.createElement('div');
-      bar.style.cssText = 'display:flex;justify-content:flex-end;padding:6px 8px;';
-      bar.innerHTML = `<button style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text3);cursor:pointer;font-family:var(--font)">${t('videoInsertBtn')}</button>`;
-      bar.querySelector('button').onclick = () => { this.data.embedUrl=''; this.data.url=''; this._el.innerHTML=''; this._renderInput(); };
-      this._el.appendChild(bar);
-    }
+    this._appendReplaceBar();
+  }
+  _renderFileVideo() {
+    this._el.innerHTML = '';
+    const video = document.createElement('video');
+    video.className = 'video-file';
+    video.src = this.data.src;
+    video.controls = true;
+    video.preload = 'metadata';
+    video.playsInline = true;
+    this._el.appendChild(video);
+    this._appendReplaceBar();
   }
   _renderInput() {
+    this._el.innerHTML = '';
     const zone = document.createElement('div');
     zone.className = 'video-upload-zone';
-    zone.innerHTML = `<i class="fa-solid fa-video" style="font-style:normal"></i><div style="font-weight:500;font-size:14px;color:var(--text2)">${t('videoInsertLabel')}</div><div style="font-size:12px">${t('videoInsertDesc')}</div>`;
+    zone.innerHTML = `<i class="fa-solid fa-video" style="font-style:normal"></i>
+      <div style="font-weight:500;font-size:14px;color:var(--text2)">${t('videoUploadLabel')}</div>
+      <div style="font-size:12px">${t('videoUploadHint')}</div>`;
+
+    // Hidden file input + browse button
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'video/mp4,video/webm,video/ogg';
+    fileInput.style.display = 'none';
+    fileInput.onchange = () => { if (fileInput.files[0]) this._uploadFile(fileInput.files[0]); };
+
+    const pickBtn = document.createElement('button');
+    pickBtn.type = 'button';
+    pickBtn.className = 'video-url-btn';
+    pickBtn.innerHTML = `<i class="fa-solid fa-cloud-arrow-up" style="font-style:normal"></i> ${t('videoUploadBtn')}`;
+    pickBtn.onmousedown = (e) => e.preventDefault();
+    pickBtn.onclick = () => fileInput.click();
+
+    const pickRow = document.createElement('div');
+    pickRow.className = 'video-pick-row';
+    pickRow.appendChild(pickBtn);
+    zone.appendChild(pickRow);
+    zone.appendChild(fileInput);
+
+    // Upload progress (hidden until an upload starts)
+    const progress = document.createElement('div');
+    progress.className = 'video-progress';
+    progress.style.display = 'none';
+    progress.innerHTML = `<div class="video-progress-track"><div class="video-progress-bar"></div></div><div class="video-progress-label"></div>`;
+    zone.appendChild(progress);
+    this._progressEl = progress;
+
+    // "or" separator before the URL embed option
+    const sep = document.createElement('div');
+    sep.className = 'video-or-sep';
+    sep.textContent = t('videoOr');
+    zone.appendChild(sep);
+
+    // URL embed row (YouTube / Vimeo) — unchanged behavior
     const row = document.createElement('div');
     row.className = 'video-url-row';
     const input = document.createElement('input');
-    input.className = 'video-url-input'; input.placeholder = 'https://youtube.com/watch?v=...';
+    input.className = 'video-url-input';
+    input.placeholder = 'https://youtube.com/watch?v=...';
     input.type = 'url';
     const btn = document.createElement('button');
-    btn.className = 'video-url-btn'; btn.textContent = t('videoInsertBtn');
+    btn.className = 'video-url-btn';
+    btn.textContent = t('videoInsertBtn');
     btn.onmousedown = (e) => {
       e.preventDefault();
       const embed = this._toEmbed(input.value.trim());
-      if (embed) { this.data.url = input.value.trim(); this.data.embedUrl = embed; this._el.innerHTML = ''; this._renderVideo(); }
+      if (embed) { this.data.url = input.value.trim(); this.data.embedUrl = embed; this._el.innerHTML = ''; this._renderEmbed(); markDirty(); scheduleUndoSnapshot(); }
       else { input.style.borderColor = '#ef4444'; }
     };
     input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); btn.onmousedown(e); } };
     row.appendChild(input); row.appendChild(btn);
     zone.appendChild(row);
+
+    // Drag & drop a video file anywhere on the zone
+    zone.ondragover = (e) => { e.preventDefault(); zone.classList.add('drag-over'); };
+    zone.ondragleave = () => zone.classList.remove('drag-over');
+    zone.ondrop = (e) => {
+      e.preventDefault();
+      zone.classList.remove('drag-over');
+      const file = e.dataTransfer?.files?.[0];
+      if (file && file.type.startsWith('video/')) this._uploadFile(file);
+    };
+
     this._el.appendChild(zone);
   }
-  save() { return { url: this.data.url, embedUrl: this.data.embedUrl }; }
+  async _uploadFile(file) {
+    if (this._uploading) return;
+    if (!file.size) { showToast(t('videoUploadFailed')); return; }
+    const okTypes = ['video/mp4', 'video/webm', 'video/ogg'];
+    if (file.type && !okTypes.includes(file.type)) { showToast(t('videoTypeError')); return; }
+    if (file.size > VIDEO_MAX_UPLOAD_BYTES) { showToast(t('videoTooLarge')); return; }
+
+    this._uploading = true;
+    if (this._progressEl) { this._progressEl.style.display = ''; this._setProgress(0); }
+    try {
+      const { url, filename, mime } = await uploadVideoInChunks(file, (pct) => this._setProgress(pct));
+      this.data.src = url;
+      this.data.filename = filename;
+      this.data.mime = mime;
+      this.data.url = '';
+      this.data.embedUrl = '';
+      this._el.innerHTML = '';
+      this._renderFileVideo();
+      markDirty();
+      scheduleUndoSnapshot();
+    } catch (err) {
+      console.error('[videoUpload] failed', err);
+      showToast(err?.message || t('videoUploadFailed'));
+      if (this._progressEl) this._progressEl.style.display = 'none';
+    } finally {
+      this._uploading = false;
+    }
+  }
+  _setProgress(pct) {
+    if (!this._progressEl) return;
+    const clamped = Math.max(0, Math.min(100, Math.round(pct)));
+    const bar = this._progressEl.querySelector('.video-progress-bar');
+    const label = this._progressEl.querySelector('.video-progress-label');
+    if (bar) bar.style.width = clamped + '%';
+    if (label) label.textContent = `${t('videoUploading')} ${clamped}%`;
+  }
+  save() {
+    return {
+      url: this.data.url,
+      embedUrl: this.data.embedUrl,
+      src: this.data.src,
+      filename: this.data.filename,
+      mime: this.data.mime,
+    };
+  }
 }
 
 // ════════════════════════════════════════
@@ -3236,6 +3365,60 @@ async function uploadImageFile(file) {
   const d = await parseApiJsonResponse(r);
   if (!d.ok) throw new Error(d.error || 'upload failed');
   return { url: d.url, filename: d.filename };
+}
+
+// Keep in sync with VIDEO_MAX_BYTES in api.php (2 GB).
+const VIDEO_MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024;
+// Chunk size for video uploads. Must stay below the server's post_max_size so
+// each chunk request is accepted. Chunks are sent as the raw request body, so
+// upload_max_filesize never applies — that is how arbitrarily large files work.
+const VIDEO_UPLOAD_CHUNK_BYTES = 2 * 1024 * 1024;
+
+function makeUploadId() {
+  // Random, filename-safe id matching the server's [A-Za-z0-9_-] sanitization.
+  let rnd;
+  if (window.crypto && crypto.getRandomValues) {
+    rnd = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+      .map(b => b.toString(16).padStart(2, '0')).join('');
+  } else {
+    rnd = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  }
+  return ('v' + rnd).slice(0, 48);
+}
+
+// Upload a (potentially very large) video file in small sequential chunks sent as
+// the raw request body. This bypasses PHP's upload_max_filesize/post_max_size for
+// the file as a whole. Calls onProgress(percent); resolves {url, filename, mime}.
+async function uploadVideoInChunks(file, onProgress) {
+  const uploadId = makeUploadId();
+  const total = Math.max(1, Math.ceil(file.size / VIDEO_UPLOAD_CHUNK_BYTES));
+  let result = null;
+
+  for (let index = 0; index < total; index++) {
+    const offset = index * VIDEO_UPLOAD_CHUNK_BYTES;
+    const blob = file.slice(offset, Math.min(offset + VIDEO_UPLOAD_CHUNK_BYTES, file.size));
+    const params = new URLSearchParams({
+      action: 'upload_video_chunk',
+      upload_id: uploadId,
+      index: String(index),
+      total: String(total),
+      offset: String(offset),
+      total_size: String(file.size),
+    });
+    const r = await fetch('api.php?' + params.toString(), {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: blob,
+    });
+    const d = await parseApiJsonResponse(r);
+    if (!d.ok) throw new Error(d.error || t('videoUploadFailed'));
+    if (typeof onProgress === 'function') onProgress(((index + 1) / total) * 100);
+    if (d.done) result = { url: d.url, filename: d.filename, mime: d.mime };
+  }
+
+  if (!result || !result.url) throw new Error(t('videoUploadFailed'));
+  return result;
 }
 
 async function insertPastedImageBlock(file) {

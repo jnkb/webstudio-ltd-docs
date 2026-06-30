@@ -18,6 +18,15 @@ define('PAGES_DIR',       __DIR__ . '/data/pages');
 define('TRASH_DIR',       __DIR__ . '/data/trash');
 define('PAGES_TRASH_DIR', __DIR__ . '/data/trash/pages');
 define('IMAGES_DIR',      __DIR__ . '/images');
+define('VIDEOS_DIR',      __DIR__ . '/videos');
+define('TMP_UPLOADS_DIR', DATA_DIR . '/tmp_uploads');
+
+// Largest fully-assembled video upload we accept (2 GB). Chunks are uploaded
+// individually as small raw-body requests (see upload_video_chunk), so this is
+// the only effective ceiling for large local video uploads.
+define('VIDEO_MAX_BYTES', 2 * 1024 * 1024 * 1024);
+// Reject any single chunk larger than this (defensive; the client uses ~2 MB).
+define('VIDEO_CHUNK_MAX_BYTES', 8 * 1024 * 1024);
 
 // ── Session / auth (same as auth.php) ──
 define('SESSION_NAME', 'docs_auth_' . DOCS_INSTANCE_HASH);
@@ -41,7 +50,7 @@ $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
 // ── Helper functions ────────────────────────
 function ensureDirs() {
-    foreach ([DATA_DIR, PAGES_DIR, TRASH_DIR, PAGES_TRASH_DIR, IMAGES_DIR] as $dir) {
+    foreach ([DATA_DIR, PAGES_DIR, TRASH_DIR, PAGES_TRASH_DIR, IMAGES_DIR, VIDEOS_DIR, TMP_UPLOADS_DIR] as $dir) {
         if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {
             err('Failed to initialize storage directories', 500);
         }
@@ -155,6 +164,27 @@ function detectUploadedImageMime($path) {
     foreach ($candidates as $candidate) {
         if (is_string($candidate) && $candidate !== '') {
             return $candidate;
+        }
+    }
+
+    return null;
+}
+
+function detectUploadedVideoMime($path) {
+    if (!is_string($path) || $path === '' || !is_file($path) || !is_readable($path)) {
+        return null;
+    }
+
+    if (function_exists('finfo_open') && defined('FILEINFO_MIME_TYPE')) {
+        $finfo = @finfo_open(FILEINFO_MIME_TYPE);
+        if ($finfo) {
+            $mime = @finfo_file($finfo, $path);
+            @finfo_close($finfo);
+            if (is_string($mime) && $mime !== '') {
+                // Some systems report Ogg video as application/ogg.
+                if ($mime === 'application/ogg') return 'video/ogg';
+                return $mime;
+            }
         }
     }
 
@@ -383,6 +413,7 @@ function requireAuth() {
 ensureDirs();
 ensureProtectedDirectoryIndex(TRASH_DIR);
 ensureProtectedDirectoryIndex(PAGES_TRASH_DIR);
+ensureProtectedDirectoryIndex(TMP_UPLOADS_DIR);
 
 // ════════════════════════════════════════════
 switch ($action) {
@@ -607,6 +638,90 @@ case 'delete_image':
     $path = IMAGES_DIR . '/' . $name;
     if (file_exists($path)) unlink($path);
     ok();
+
+// ── UPLOAD VIDEO (chunked, raw body) ──
+// Large local videos arrive as many small sequential chunks sent as the raw
+// request body (NOT multipart), so PHP's upload_max_filesize never applies and
+// only a modest post_max_size is required. Each chunk is appended to a temp file
+// in the protected data/ area; the assembled file is validated and moved to
+// videos/ only once the final chunk arrives.
+case 'upload_video_chunk':
+    requireAuth();
+
+    $uploadId    = preg_replace('/[^A-Za-z0-9_-]/', '', (string)($_GET['upload_id'] ?? ''));
+    $chunkIndex  = (int)($_GET['index'] ?? -1);
+    $totalChunks = (int)($_GET['total'] ?? 0);
+    $offset      = (int)($_GET['offset'] ?? -1);
+    $totalSize   = (int)($_GET['total_size'] ?? 0);
+
+    if ($uploadId === '' || strlen($uploadId) > 64) err('Invalid upload id');
+    if ($chunkIndex < 0 || $totalChunks < 1 || $totalChunks > 1000000) err('Invalid chunk metadata');
+    if ($chunkIndex >= $totalChunks) err('Invalid chunk index');
+    if ($offset < 0) err('Invalid chunk offset');
+    if ($totalSize < 1 || $totalSize > VIDEO_MAX_BYTES) err('File too large (max 2 GB)');
+
+    if (!is_dir(TMP_UPLOADS_DIR) && !@mkdir(TMP_UPLOADS_DIR, 0755, true) && !is_dir(TMP_UPLOADS_DIR)) {
+        err('Upload directory is not available', 500);
+    }
+    if (!is_writable(TMP_UPLOADS_DIR)) err('Upload directory is not writable', 500);
+    ensureProtectedDirectoryIndex(TMP_UPLOADS_DIR);
+
+    // Opportunistic cleanup: drop abandoned temp parts older than 24h.
+    if ($chunkIndex === 0) {
+        foreach (glob(TMP_UPLOADS_DIR . '/*.part') ?: [] as $stale) {
+            if (is_file($stale) && (time() - @filemtime($stale)) > 86400) @unlink($stale);
+        }
+    }
+
+    $tmpPath = TMP_UPLOADS_DIR . '/' . $uploadId . '.part';
+
+    $chunk = file_get_contents('php://input');
+    if ($chunk === false) err('Failed to read upload data', 500);
+    $chunkLen = strlen($chunk);
+    if ($chunkLen === 0) err('Empty chunk');
+    if ($chunkLen > VIDEO_CHUNK_MAX_BYTES) err('Chunk too large');
+
+    // The first chunk starts a fresh file; later chunks must line up exactly with
+    // the bytes already stored (guards against gaps, overlaps and stray writers).
+    if ($chunkIndex === 0) {
+        if (is_file($tmpPath)) @unlink($tmpPath);
+    } else {
+        $have = is_file($tmpPath) ? filesize($tmpPath) : -1;
+        if ($have !== $offset) err('Chunk out of order', 409);
+    }
+    if ($offset + $chunkLen > VIDEO_MAX_BYTES) { @unlink($tmpPath); err('File too large (max 2 GB)'); }
+
+    if (file_put_contents($tmpPath, $chunk, FILE_APPEND | LOCK_EX) === false) {
+        err('Failed to store chunk', 500);
+    }
+
+    // Not the final chunk yet — acknowledge and wait for the next one.
+    if ($chunkIndex < $totalChunks - 1) {
+        ok(['done' => false, 'received' => $chunkIndex + 1]);
+    }
+
+    // Final chunk — validate the assembled file, then publish it to videos/.
+    $assembledSize = is_file($tmpPath) ? filesize($tmpPath) : 0;
+    if ($assembledSize !== $totalSize) { @unlink($tmpPath); err('Upload size mismatch'); }
+
+    $mime = detectUploadedVideoMime($tmpPath);
+    $allowedVideo = ['video/mp4', 'video/webm', 'video/ogg'];
+    if (!$mime || !in_array($mime, $allowedVideo, true)) { @unlink($tmpPath); err('File type not allowed'); }
+    $extMap = ['video/mp4' => 'mp4', 'video/webm' => 'webm', 'video/ogg' => 'ogg'];
+    $ext = $extMap[$mime];
+
+    if (!is_dir(VIDEOS_DIR) && !@mkdir(VIDEOS_DIR, 0755, true) && !is_dir(VIDEOS_DIR)) {
+        @unlink($tmpPath); err('Upload directory is not available', 500);
+    }
+    if (!is_writable(VIDEOS_DIR)) { @unlink($tmpPath); err('Upload directory is not writable', 500); }
+
+    $name = uniqid('vid_', true) . '.' . $ext;
+    $dest = VIDEOS_DIR . '/' . $name;
+    if (!@rename($tmpPath, $dest)) { @unlink($tmpPath); err('Failed to save file', 500); }
+    @chmod($dest, 0644);
+
+    $baseUrl = rtrim(dirname($_SERVER['PHP_SELF']), '/');
+    ok(['done' => true, 'url' => $baseUrl . '/videos/' . $name, 'filename' => $name, 'mime' => $mime]);
 
 default:
     err('Unknown action');

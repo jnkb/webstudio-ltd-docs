@@ -194,6 +194,10 @@ const TRANSLATIONS = {
         // ── Video tool ──
         videoInsertLabel: 'Insert video', videoInsertDesc: 'YouTube or Vimeo URL',
         videoInsertBtn: 'Insert',
+        videoUploadLabel: 'Upload a video', videoUploadHint: 'MP4, WebM or Ogg',
+        videoUploadBtn: 'Choose file', videoUploading: 'Uploading…',
+        videoUploadFailed: 'Video upload failed', videoTooLarge: 'Video is too large (max 2 GB)',
+        videoTypeError: 'Unsupported video format', videoReplace: 'Replace', videoOr: 'or',
         // ── Image tool ──
         imageDropLabel: 'Drop an image or <span class="lit-pick-btn">browse files</span>',
         imageDropSub: 'or enter a URL',
@@ -385,6 +389,10 @@ const TRANSLATIONS = {
         collapsiblePlaceholder: 'Abschnittsüberschrift...', collapsibleDefaultTitle: 'Abschnitt', collapsibleBodyPlaceholder: 'Abschnittsinhalt...',
         videoInsertLabel: 'Video einfügen', videoInsertDesc: 'YouTube- oder Vimeo-URL',
         videoInsertBtn: 'Einfügen',
+        videoUploadLabel: 'Video hochladen', videoUploadHint: 'MP4, WebM oder Ogg',
+        videoUploadBtn: 'Datei wählen', videoUploading: 'Wird hochgeladen…',
+        videoUploadFailed: 'Video-Upload fehlgeschlagen', videoTooLarge: 'Video ist zu groß (max. 2 GB)',
+        videoTypeError: 'Nicht unterstütztes Videoformat', videoReplace: 'Ersetzen', videoOr: 'oder',
         imageDropLabel: 'Bild hier ablegen oder <span class="lit-pick-btn">Dateien auswählen</span>',
         imageDropSub: 'oder eine URL eingeben',
         imageUploadLabel: 'Zum Hochladen klicken oder Bild hierher ziehen',
@@ -585,6 +593,10 @@ const TRANSLATIONS = {
         // ── Video tool ──
         videoInsertLabel: 'Vložiť video', videoInsertDesc: 'YouTube alebo Vimeo URL',
         videoInsertBtn: 'Vložiť',
+        videoUploadLabel: 'Nahrať video', videoUploadHint: 'MP4, WebM alebo Ogg',
+        videoUploadBtn: 'Vybrať súbor', videoUploading: 'Nahráva sa…',
+        videoUploadFailed: 'Nahrávanie videa zlyhalo', videoTooLarge: 'Video je príliš veľké (max. 2 GB)',
+        videoTypeError: 'Nepodporovaný formát videa', videoReplace: 'Nahradiť', videoOr: 'alebo',
         // ── Image tool ──
         imageDropLabel: 'Pretiahnite obrázok alebo <span class="lit-pick-btn">vyberte súbor</span>',
         imageDropSub: 'alebo zadajte URL',

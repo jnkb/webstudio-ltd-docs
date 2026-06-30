@@ -923,7 +923,10 @@ function renderCollapse(d) {
 }
 
 function renderVideo(d) {
-  if (!d.embedUrl) return '';
+  if (d && d.src) {
+    return `<div class="video-block"><video class="video-file" src="${esc(d.src)}" controls preload="metadata" playsinline></video></div>`;
+  }
+  if (!d || !d.embedUrl) return '';
   return `<div class="video-block"><iframe src="${esc(d.embedUrl)}" allowfullscreen allow="autoplay; encrypted-media"></iframe></div>`;
 }
 

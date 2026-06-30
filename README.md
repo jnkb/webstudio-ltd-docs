@@ -20,6 +20,7 @@ The main changes are:
 - **Safer page deletion** — removed pages and related rating files are archived into `data/trash/pages` instead of being deleted outright.
 - **Editable page IDs and internal link picker** — page URLs can be customized and internal links can be selected from a searchable page list.
 - **Clipboard image paste support** — pasted screenshots and copied images can be uploaded directly into the editor.
+- **Local video uploads** — upload MP4, WebM, or Ogg files alongside YouTube/Vimeo embeds; uploads are chunked so very large files bypass PHP's upload limits, and they play in a standard HTML5 player in both the editor and the public viewer.
 - **Selectable divider styles** — delimiter blocks can render as stars, a solid line, a dashed line, or dots.
 - **Preserved table line breaks** — multi-line table cells now keep their line breaks during save and render.
 - **PHP 8.5 compatibility updates** — the fork includes fixes for current PHP deprecations and edge cases.
@@ -91,7 +92,7 @@ This fork also includes compatibility fixes for current PHP 8.5 behavior.
 git clone https://github.com/jnkb/webstudio-ltd-docs.git
 
 # 2. Upload the project files to your PHP server
-#    keep the folder structure intact (`assets/`, `data/`, `images/`)
+#    keep the folder structure intact (`assets/`, `data/`, `images/`, `videos/`)
 
 # 3. Open editor.php in your browser → set your admin password → start writing
 ```
@@ -115,7 +116,7 @@ No `npm install`. No environment variables. No database migrations. No Docker. J
 - **Collapsible sections** — perfect for FAQs
 - **Timeline** — ideal for changelogs and release notes
 - **Cards** — icon grids with links to internal pages or external URLs
-- **Video embeds** — YouTube, Vimeo
+- **Video** — upload local files (MP4, WebM, Ogg) with chunked large-file support, or embed YouTube / Vimeo
 - **Quotes, delimiters, inline code, markers** — including selectable divider styles
 - **Internal page links** — searchable page picker for linking cards and rich text to other docs pages
 - **Editable page IDs** — control clean URLs manually when you need stable or custom slugs
