@@ -78,7 +78,27 @@ function jsonRead($path, $default = null) {
 }
 
 function jsonWrite($path, $data) {
-    return file_put_contents($path, json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) !== false;
+    $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+    if ($json === false) return false;
+    // Write to a temp file then rename: rename() is atomic on the same
+    // filesystem, so a reader never sees a half-written file and two
+    // concurrent writers can't interleave bytes into one file.
+    $tmp = $path . '.tmp.' . getmypid();
+    if (file_put_contents($tmp, $json, LOCK_EX) === false) return false;
+    return rename($tmp, $path);
+}
+
+// Settings the public (unauthenticated) viewer is allowed to see. Everything
+// else in settings.json stays admin-only instead of being dumped by ?action=load.
+function publicSettings($s) {
+    if (!is_array($s)) return [];
+    $allow = ['siteName','tabTitle','accentColor','theme','lang',
+              'logoDataUrl','faviconDataUrl','footerText'];
+    $out = [];
+    foreach ($allow as $k) {
+        if (array_key_exists($k, $s)) $out[$k] = $s[$k];
+    }
+    return $out;
 }
 
 function uploadErrorMessage($code) {
@@ -377,9 +397,15 @@ case 'load':
     if (is_dir(PAGES_DIR)) {
         foreach (pageJsonFiles() as $file) {
             $page = jsonRead($file);
-            if ($page) $pages[] = $page;
+            if (!$page) continue;
+            // Public visitors never see pages flagged as draft. (Backward
+            // compatible: pages without the flag behave exactly as before.)
+            if (!$authed && !empty($page['draft'])) continue;
+            $pages[] = $page;
         }
     }
+    // Public visitors get only render-safe settings, not the whole config blob.
+    if (!$authed) $settings = publicSettings($settings);
     ok(['spaces' => $spaces, 'pages' => $pages, 'settings' => $settings]);
 
 // ── LOAD PAGE — load content of a single page ──
@@ -389,6 +415,8 @@ case 'load_page':
     if (!$id) err('Missing id');
     $page = jsonRead(pageFilePath($id));
     if (!$page) err('Page not found', 404);
+    // Same 404 as a missing page so drafts can't be probed by id.
+    if (!$authed && !empty($page['draft'])) err('Page not found', 404);
     $response = ['page' => $page];
     if ($authed) {
         $summary = loadRatingSummary($id);
@@ -558,7 +586,7 @@ case 'upload_image':
 
     $ext = [
         'image/jpeg' => 'jpg', 'image/png' => 'png',
-        'image/gif' => 'gif', 'image/webp' => 'webp', 'image/svg+xml' => 'svg'
+        'image/gif' => 'gif', 'image/webp' => 'webp'
     ][$mime];
     $name = uniqid('img_', true) . '.' . $ext;
     $dest = IMAGES_DIR . '/' . $name;

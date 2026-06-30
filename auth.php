@@ -301,6 +301,74 @@ function ensureInitialDocumentationContent() {
     return true;
 }
 
+// ── Rate limiting ────────────────────────────────────────────
+// The old limiter counted attempts in $_SESSION, which a brute-forcer
+// trivially bypasses: send no cookie -> fresh session -> counter resets
+// to 1 every request. This version keys on the client IP and persists to
+// a file under data/ (which is already blocked from web access by .htaccess).
+define('RATE_FILE',   DATA_DIR . '/ratelimit.json');
+define('RATE_MAX',    10);   // max FAILED attempts...
+define('RATE_WINDOW', 300);  // ...per this many seconds (5 min)
+
+function clientIp() {
+    // REMOTE_ADDR is the only value we can trust by default. X-Forwarded-For
+    // is attacker-spoofable unless you sit behind a proxy you control and
+    // have validated it — don't read it here without that guarantee.
+    return $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+}
+
+// Open the store, prune expired entries, run $fn($data), persist. flock'd.
+function rateWith($fn) {
+    if (!is_dir(DATA_DIR)) @mkdir(DATA_DIR, 0755, true);
+    $fp = @fopen(RATE_FILE, 'c+');
+    if (!$fp) { $nil = null; return $fn($nil); }  // fail open: don't lock out the admin on an FS error
+    flock($fp, LOCK_EX);
+    $raw  = stream_get_contents($fp);
+    $data = $raw ? json_decode($raw, true) : [];
+    if (!is_array($data)) $data = [];
+    $now = time();
+    foreach ($data as $k => $v) {             // prune so the file can't grow unbounded
+        if (($v['reset'] ?? 0) <= $now) unset($data[$k]);
+    }
+    $result = $fn($data);
+    ftruncate($fp, 0); rewind($fp);
+    fwrite($fp, json_encode($data));
+    fflush($fp); flock($fp, LOCK_UN); fclose($fp);
+    return $result;
+}
+
+// Returns [allowed(bool), retryAfter(int)]
+function rateCheck($ip) {
+    return rateWith(function (&$data) use ($ip) {
+        if ($data === null) return [true, 0];
+        $e = $data[hash('sha256', $ip)] ?? null;
+        $now = time();
+        if ($e && $e['count'] >= RATE_MAX && $e['reset'] > $now) {
+            return [false, $e['reset'] - $now];
+        }
+        return [true, 0];
+    });
+}
+
+function rateHit($ip) {
+    rateWith(function (&$data) use ($ip) {
+        if ($data === null) return;
+        $key = hash('sha256', $ip);
+        $now = time();
+        if (!isset($data[$key]) || $data[$key]['reset'] <= $now) {
+            $data[$key] = ['count' => 0, 'reset' => $now + RATE_WINDOW];
+        }
+        $data[$key]['count']++;
+    });
+}
+
+function rateClear($ip) {
+    rateWith(function (&$data) use ($ip) {
+        if ($data === null) return;
+        unset($data[hash('sha256', $ip)]);
+    });
+}
+
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 
 switch ($action) {
@@ -379,27 +447,21 @@ switch ($action) {
             break;
         }
 
-        // Rate limiting — max 10 attempts per 5 minutes
-        $attempts = &$_SESSION['login_attempts'];
-        $lastAttempt = &$_SESSION['last_attempt_time'];
+        // Rate limiting — max 10 FAILED attempts per IP per 5 min (file-backed)
+        $ip  = clientIp();
         $now = time();
-        if ($lastAttempt && ($now - $lastAttempt) > 300) {
-            $attempts = 0; // reset after 5 min
-        }
-        if ($attempts >= 10) {
-            $wait = 300 - ($now - $lastAttempt);
+        [$allowed, $retry] = rateCheck($ip);
+        if (!$allowed) {
             http_response_code(429);
-            echo json_encode(['ok' => false, 'error' => "Too many attempts. Try again in {$wait}s."]);
+            echo json_encode(['ok' => false, 'error' => "Too many attempts. Try again in {$retry}s."]);
             break;
         }
-        $attempts = ($attempts ?? 0) + 1;
-        $lastAttempt = $now;
 
         $hash = getPasswordHash();
         if ($hash && password_verify($pw, $hash)) {
+            rateClear($ip);
             $_SESSION['authed'] = true;
             $_SESSION['authed_at'] = $now;
-            $attempts = 0;
             session_regenerate_id(true);
 
             // Re-hash if needed (algorithm upgrade)
@@ -412,6 +474,7 @@ switch ($action) {
 
             echo json_encode(['ok' => true, 'authed' => true]);
         } else {
+            rateHit($ip);
             http_response_code(401);
             echo json_encode(['ok' => false, 'error' => 'Wrong password']);
         }
