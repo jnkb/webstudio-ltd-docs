@@ -4255,14 +4255,7 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     toggleEdit();
   }
-  if (meta && key === 'k') {
-    e.preventDefault();
-    const searchInput = document.getElementById('search-input');
-    if (searchInput) {
-      searchInput.focus();
-      searchInput.select();
-    }
-  }
+  // Cmd/Ctrl+K (focus search) is registered in assets/shared.js
   if (e.key === 'Escape') {
     closeModal('add-modal');
     closeSettings();
@@ -5237,9 +5230,9 @@ handleSearch = function(q) {
 
 // ════════════════════════════════════════
 //  EDITOR-ONLY KEYBOARD SHORTCUTS
-//  Reader-level shortcuts (? overlay, Cmd+R, Cmd+Shift+C, Esc, ←→) are
-//  registered in assets/shared.js. Only the editor-specific Cmd+/ slash
-//  menu shortcut lives here.
+//  Reader-level shortcuts (search ⌘K, ? overlay, Cmd+R, Cmd+Shift+C, Esc,
+//  ←→) are registered in assets/shared.js. Only the editor-specific Cmd+/
+//  slash menu shortcut lives here.
 // ════════════════════════════════════════
 document.addEventListener('keydown', e => {
   const meta = e.metaKey || e.ctrlKey;

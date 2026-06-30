@@ -817,6 +817,14 @@ document.addEventListener('keydown', e => {
         return;
     }
 
+    // Cmd/Ctrl+K = focus the search field (viewer + editor)
+    if (meta && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        const searchInput = document.getElementById('search-input');
+        if (searchInput) { searchInput.focus(); searchInput.select(); }
+        return;
+    }
+
     // Cmd+R = reading mode
     if (meta && e.key === 'r') {
         e.preventDefault();
@@ -842,6 +850,56 @@ document.addEventListener('keydown', e => {
         if (e.key === 'ArrowRight') navigatePrevNext(1);
     }
 });
+
+// ════════════════════════════════════════
+//  PLATFORM HOTKEY LABELS
+//  macOS keeps the ⌘/⇧ glyphs; other platforms (Windows/Linux) get
+//  readable Ctrl/Shift labels so the keys are never shown as Apple-only
+//  symbols (or unrenderable tofu boxes).
+// ════════════════════════════════════════
+const IS_APPLE_PLATFORM = (() => {
+    const platform = (navigator.userAgentData && navigator.userAgentData.platform)
+        || navigator.platform || navigator.userAgent || '';
+    return /mac|iphone|ipad|ipod/i.test(platform);
+})();
+
+const HOTKEY_SYMBOL_WORDS = { '⌘': 'Ctrl', '⌃': 'Ctrl', '⇧': 'Shift', '⌥': 'Alt' };
+
+function withReadableHotkeys(text, joiner) {
+    return String(text ?? '')
+        .replace(/⌘|⌃/g, 'Ctrl' + joiner)
+        .replace(/⇧/g, 'Shift' + joiner)
+        .replace(/⌥/g, 'Alt' + joiner)
+        .trim();
+}
+
+// Swap macOS key glyphs for readable labels on non-Apple platforms.
+function applyPlatformHotkeyLabels() {
+    if (IS_APPLE_PLATFORM) return;
+
+    // Shortcuts overlay: each key glyph sits in its own <kbd>.
+    document.querySelectorAll('.shortcut-keys kbd').forEach(kbd => {
+        const word = HOTKEY_SYMBOL_WORDS[kbd.textContent.trim()];
+        if (word) kbd.textContent = word;
+    });
+
+    // Compact search badge, e.g. "⌘K" → "Ctrl K".
+    document.querySelectorAll('.search-kbd').forEach(el => {
+        el.textContent = withReadableHotkeys(el.textContent, ' ');
+    });
+
+    // Inline tooltips, e.g. title="Undo (⌘Z)" → "Undo (Ctrl+Z)".
+    document.querySelectorAll('[title]').forEach(el => {
+        const title = el.getAttribute('title');
+        if (title && /[⌘⌃⇧⌥]/.test(title)) el.setAttribute('title', withReadableHotkeys(title, '+'));
+    });
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', applyPlatformHotkeyLabels);
+} else {
+    applyPlatformHotkeyLabels();
+}
 
 // ════════════════════════════════════════
 //  PAGE-LINK BINDING (shared contract)
