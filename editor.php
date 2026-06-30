@@ -4090,22 +4090,28 @@ function collectDescendants(id) {
 function handleSearch(q) {
   const dd = document.getElementById('search-dd');
   if (!q.trim()) { dd.innerHTML = ''; dd.classList.remove('open'); return; }
-  const results = S.pages.filter(p =>
-    p.title.toLowerCase().includes(q.toLowerCase()) ||
-    (p.subtitle || '').toLowerCase().includes(q.toLowerCase())
-  ).slice(0, 8);
+  const ql = decodeHtmlEntities(q).toLowerCase();
+  const results = S.pages.filter(p => {
+    const titleText = decodeHtmlEntities(p.title || '').toLowerCase();
+    const subtitleText = decodeHtmlEntities(p.subtitle || '').toLowerCase();
+    return titleText.includes(ql) || subtitleText.includes(ql);
+  }).slice(0, 8);
 
   if (!results.length) {
     dd.innerHTML = `<div class="search-empty"><i class="fa-solid fa-magnifying-glass" style="margin-right:6px"></i>${t('searchNoResults')}</div>`;
   } else {
-    dd.innerHTML = results.map(p => `
+    dd.innerHTML = results.map(p => {
+      const titleText = decodeHtmlEntities(p.title || '');
+      const subtitleText = decodeHtmlEntities(p.subtitle || '');
+      return `
       <a class="search-result-item" href="${esc(buildPageHref(p.id))}" data-page-id="${esc(p.id)}" data-space-id="${esc(p.spaceId || '')}" data-close-search="1">
         <i class="fa-solid ${p.icon || 'fa-file'}"></i>
         <div>
-          <div class="search-result-title">${esc(p.title)}</div>
-          ${p.subtitle ? `<div class="search-result-path">${esc(p.subtitle.slice(0,60))}</div>` : ''}
+          <div class="search-result-title">${esc(titleText)}</div>
+          ${subtitleText ? `<div class="search-result-path">${esc(subtitleText.slice(0,60))}</div>` : ''}
         </div>
-      </a>`).join('');
+      </a>`;
+    }).join('');
   }
   bindEditorPageLinks(dd);
   dd.classList.add('open');

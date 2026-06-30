@@ -150,10 +150,32 @@ function slugify(text) {
         .trim() || 'heading';
 }
 
+function decodeHtmlEntities(value) {
+    const input = String(value ?? '');
+    if (!input) return '';
+
+    if (typeof document === 'undefined') {
+        return input
+            .replace(/&nbsp;|&#160;/gi, ' ')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;|&#x27;/gi, "'")
+            .replace(/\u00a0/g, ' ');
+    }
+
+    const decodeEl = decodeHtmlEntities._el || (decodeHtmlEntities._el = document.createElement('textarea'));
+    decodeEl.innerHTML = input;
+    return (decodeEl.value || '').replace(/\u00a0/g, ' ');
+}
+
 function highlight(text, q) {
-    if (!q) return esc(text);
-    const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return esc(text).replace(new RegExp(`(${escaped})`, 'gi'), '<mark>$1</mark>');
+    const normalizedText = decodeHtmlEntities(text);
+    const normalizedQuery = decodeHtmlEntities(q);
+    if (!normalizedQuery) return esc(normalizedText);
+    const escaped = normalizedQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return esc(normalizedText).replace(new RegExp(`(${escaped})`, 'gi'), '<mark>$1</mark>');
 }
 
 // Collect all searchable plain text from a block, across every tool's data
@@ -165,7 +187,11 @@ function getBlockSearchText(block) {
     const parts = [];
     const push = (v) => {
         if (typeof v !== 'string') return;
-        const clean = v.replace(/<[^>]+>/g, '').trim();
+        const clean = decodeHtmlEntities(
+            v
+                .replace(/<br\s*\/?>/gi, ' ')
+                .replace(/<[^>]+>/g, ' ')
+        ).replace(/\s+/g, ' ').trim();
         if (clean) parts.push(clean);
     };
 
@@ -212,7 +238,8 @@ function getBlockSearchText(block) {
 
 function getPageTextSnippet(page, q) {
     const blocks = page.content?.blocks || [];
-    const ql = q.toLowerCase();
+    const ql = decodeHtmlEntities(q).toLowerCase();
+    if (!ql) return '';
     for (const b of blocks) {
         for (const txt of getBlockSearchText(b)) {
             if (txt.toLowerCase().includes(ql)) {

@@ -1049,12 +1049,14 @@ function handleSearch(q) {
   const dd = document.getElementById('search-dd');
   if (!q.trim()) { dd.innerHTML = ''; dd.classList.remove('open'); return; }
 
-  const ql = q.toLowerCase();
-  const results = S.pages.filter(p =>
-    p.title.toLowerCase().includes(ql) ||
-    (p.subtitle || '').toLowerCase().includes(ql) ||
-    (p.content?.blocks || []).some(b => getBlockSearchText(b).some(txt => txt.toLowerCase().includes(ql)))
-  ).slice(0, 8);
+  const ql = decodeHtmlEntities(q).toLowerCase();
+  const results = S.pages.filter(p => {
+    const titleText = decodeHtmlEntities(p.title || '').toLowerCase();
+    const subtitleText = decodeHtmlEntities(p.subtitle || '').toLowerCase();
+    return titleText.includes(ql) ||
+      subtitleText.includes(ql) ||
+      (p.content?.blocks || []).some(b => getBlockSearchText(b).some(txt => txt.toLowerCase().includes(ql)));
+  }).slice(0, 8);
 
   if (!results.length) {
     dd.innerHTML = `<div class="search-empty"><i class="fa-solid fa-magnifying-glass" style="margin-right:6px"></i>${t('searchNoResults')}</div>`;
@@ -1062,7 +1064,8 @@ function handleSearch(q) {
     dd.innerHTML = results.map(p => {
       const snippet = getPageTextSnippet(p, q);
       const titleHl = highlight(p.title, q);
-      const subtitleHl = p.subtitle ? highlight(p.subtitle.slice(0, 60), q) : '';
+      const subtitleText = decodeHtmlEntities(p.subtitle || '');
+      const subtitleHl = subtitleText ? highlight(subtitleText.slice(0, 60), q) : '';
       return `
         <a class="search-result-item" href="${esc(buildPageHref(p.id))}" data-page-id="${esc(p.id)}" data-space-id="${esc(p.spaceId || '')}" data-close-search="1">
           <i class="fa-solid ${p.icon || 'fa-file'}"></i>
