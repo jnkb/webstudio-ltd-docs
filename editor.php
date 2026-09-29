@@ -4431,7 +4431,7 @@ async function confirmAddPage() {
   if (!iconVal.startsWith('fa-')) iconVal = 'fa-' + iconVal;
   const section = document.getElementById('new-section').value.trim() || null;
 
-  const tmpl = getPageTemplates().find(tmpl => t.id === selectedTemplate) || getPageTemplates()[0];
+  const tmpl = getPageTemplates().find(tmpl => tmpl.id === selectedTemplate) || getPageTemplates()[0];
 
   const siblings = S.pages.filter(p =>
     p.spaceId === S.currentSpaceId && p.parentId === S.addParentId
