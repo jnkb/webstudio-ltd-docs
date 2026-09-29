@@ -1856,6 +1856,22 @@ body { top: 0 !important; }
 .nav-item[draggable="true"] { cursor: grab; }
 .nav-item[draggable="true"]:active { cursor: grabbing; }
 
+/* Markdown file import — hint shown while .md files are dragged over the editor */
+.md-drop-hint {
+  position: fixed; top: calc(var(--total-h) + 16px); left: 50%;
+  transform: translateX(-50%) translateY(-8px);
+  max-width: calc(100vw - 32px);
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 18px; border-radius: 8px;
+  background: var(--bg2); border: 2px dashed var(--accent);
+  color: var(--text); font-size: 13px; font-weight: 500;
+  box-shadow: 0 8px 24px var(--shadow);
+  opacity: 0; pointer-events: none; z-index: 500;
+  transition: opacity var(--transition), transform var(--transition);
+}
+.md-drop-hint.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+.md-drop-hint i { color: var(--accent); font-size: 18px; }
+
 /* ── Video Block ── */
 .video-block { border-radius: 8px; overflow: hidden; background: var(--bg2); border: 1px solid var(--border); }
 .video-block iframe { display: block; width: 100%; aspect-ratio: 16/9; border: none; }

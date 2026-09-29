@@ -18,6 +18,7 @@ Use this file as the default working context for changes in this repository. Kee
 - [api.php](api.php): JSON API for loading and saving spaces, settings, pages, and images. `load`, `load_page`, and `save_rating` are public; mutations require auth.
 - [auth.php](auth.php): setup wizard, login/logout, session state, password hashing, rate limiting.
 - [assets/app.css](assets/app.css), [assets/i18n.js](assets/i18n.js), [assets/shared.js](assets/shared.js): shared CSS, i18n/constants, and shared vanilla-JS helpers linked by both [index.php](index.php) and [editor.php](editor.php).
+- [assets/markdown-import.js](assets/markdown-import.js): editor-only Markdown → EditorJS block converter (`markdownToBlocks`, `looksLikeMarkdown`), linked after `shared.js` by [editor.php](editor.php) only. Used for Markdown paste into paragraph blocks and `.md` file drops that create pages. It must only emit block types/data the editor tools and the viewer's `renderBlocks()` already support; it also runs under Node (`module.exports`) for quick checks.
 - [data/](data/): persisted site settings, spaces, auth data, and one JSON file per page.
 - [.htaccess](.htaccess): Apache routing and protection expectations.
 
@@ -57,6 +58,7 @@ php -l editor.php
 php -l api.php
 php -l auth.php
 node --check assets/i18n.js
+node --check assets/markdown-import.js
 php -r 'foreach (glob("data/*.json") as $f) { json_decode(file_get_contents($f)); if (json_last_error()) { fwrite(STDERR, "$f\n"); exit(1); } }'
 php -r 'foreach (glob("data/pages/*.json") as $f) { json_decode(file_get_contents($f)); if (json_last_error()) { fwrite(STDERR, "$f\n"); exit(1); } }'
 ```

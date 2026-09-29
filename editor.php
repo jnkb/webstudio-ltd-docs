@@ -210,6 +210,7 @@ $_ogData = (function() {
 <link rel="stylesheet" href="assets/app.css">
 <script src="assets/i18n.js"></script>
 <script src="assets/shared.js"></script>
+<script src="assets/markdown-import.js"></script>
 </head>
 <body>
 <!-- Google Translate init element — musí byť v DOM, schovaný offscreen -->
@@ -3333,6 +3334,12 @@ async function onEditorPaste(e) {
   const items = e.clipboardData?.items;
   if (!items || !items.length) return;
 
+  // Only handle paste when an editor block is focused (cursor inside editor)
+  const sel = window.getSelection();
+  if (!sel || !sel.anchorNode) return;
+  const editorEl = document.getElementById('editor');
+  if (!editorEl || !editorEl.contains(sel.anchorNode)) return;
+
   // Find first image item in clipboard
   let imageFile = null;
   for (const it of items) {
@@ -3341,19 +3348,22 @@ async function onEditorPaste(e) {
       if (imageFile) break;
     }
   }
-  if (!imageFile) return;
 
-  // Only handle paste when an editor block is focused (cursor inside editor)
-  const sel = window.getSelection();
-  if (!sel || !sel.anchorNode) return;
-  const editorEl = document.getElementById('editor');
-  if (!editorEl || !editorEl.contains(sel.anchorNode)) return;
+  if (imageFile) {
+    // Prevent default text/HTML paste behaviour for images
+    e.preventDefault();
+    e.stopPropagation();
+    await insertPastedImageBlock(imageFile);
+    return;
+  }
 
-  // Prevent default text/HTML paste behaviour for images
-  e.preventDefault();
-  e.stopPropagation();
-
-  await insertPastedImageBlock(imageFile);
+  // Markdown source pasted into a text block → convert into real blocks
+  const markdown = getPastedMarkdown(e.clipboardData);
+  if (markdown && isCaretInParagraphBlock(sel.anchorNode)) {
+    e.preventDefault();
+    e.stopPropagation();
+    await insertMarkdownIntoEditor(markdown);
+  }
 }
 
 async function uploadImageFile(file) {
@@ -3445,6 +3455,227 @@ async function insertPastedImageBlock(file) {
     showToast(t('imagePasteFailed'));
   }
 }
+
+// ════════════════════════════════════════
+//  MARKDOWN IMPORT
+//  Paste Markdown into a text block, or drop .md files anywhere to create pages.
+//  The Markdown → block conversion lives in assets/markdown-import.js.
+// ════════════════════════════════════════
+
+// Returns the pasted plain text when it is Markdown source worth converting.
+// Clipboard HTML that already carries structure (copied from a rendered page)
+// is left to EditorJS's own HTML paste, which handles it better.
+function getPastedMarkdown(clipboardData) {
+  const text = clipboardData?.getData('text/plain') || '';
+  if (!text || !looksLikeMarkdown(text)) return '';
+  const html = clipboardData.getData('text/html') || '';
+  if (/<(h[1-6]|ul|ol|table|blockquote)\b/i.test(html)) return '';
+  return text;
+}
+
+// Markdown is only converted inside plain paragraph blocks — pasting into code
+// blocks, tables, callouts etc. keeps the raw text.
+function isCaretInParagraphBlock(node) {
+  const idx = editor.blocks.getCurrentBlockIndex();
+  const block = idx >= 0 ? editor.blocks.getBlockByIndex(idx) : null;
+  return !!block && block.name === 'paragraph' && !!block.holder && block.holder.contains(node);
+}
+
+function isAbsoluteImageUrl(url) {
+  return /^(https?:)?\/\//i.test(url) || /^\/(?!\/)/.test(url) || /^data:image\/(png|jpe?g|gif|webp|svg\+xml);/i.test(url);
+}
+
+function missingImageBlock(url) {
+  return { type: 'paragraph', data: { text: `<i>${esc(t('mdImageMissing'))}</i> <code class="inline-code">${esc(url)}</code>` } };
+}
+
+// Relative image paths from the Markdown source are resolved against image files
+// dropped together with the .md file (matched by file name) and uploaded once.
+// Anything unresolved becomes a visible placeholder instead of a broken image.
+async function resolveMarkdownImages(blocks, imageFiles = new Map(), uploaded = new Map()) {
+  const out = [];
+  for (const b of blocks) {
+    if (b.type !== 'image') { out.push(b); continue; }
+    const url = String(b.data.url || '').trim();
+    if (/^(javascript|vbscript):/i.test(url.replace(/\s/g, ''))) continue;
+    if (isAbsoluteImageUrl(url)) { out.push(b); continue; }
+
+    let name = url.split(/[?#]/)[0].split('/').pop() || '';
+    try { name = decodeURIComponent(name); } catch (e) {}
+    const file = imageFiles.get(name.toLowerCase());
+    if (!file) { out.push(missingImageBlock(url)); continue; }
+    try {
+      if (!uploaded.has(file)) uploaded.set(file, await uploadImageFile(file));
+      const { url: uploadedUrl, filename } = uploaded.get(file);
+      out.push({ ...b, data: { ...b.data, url: uploadedUrl, filename } });
+    } catch (err) {
+      console.error('[markdownImport] image upload failed', err);
+      out.push(missingImageBlock(url));
+    }
+  }
+  return out;
+}
+
+async function insertMarkdownIntoEditor(markdown) {
+  try {
+    const { blocks } = markdownToBlocks(markdown);
+    const ready = await resolveMarkdownImages(blocks);
+    if (!ready.length) return;
+
+    const idx = editor.blocks.getCurrentBlockIndex();
+    const current = idx >= 0 ? editor.blocks.getBlockByIndex(idx) : null;
+    const replaceCurrent = !!current && current.name === 'paragraph' && current.isEmpty;
+    const start = idx < 0 ? editor.blocks.getBlocksCount() : (replaceCurrent ? idx : idx + 1);
+
+    ready.forEach((b, n) => {
+      editor.blocks.insert(b.type, b.data, undefined, start + n, false, replaceCurrent && n === 0);
+    });
+
+    const lastIdx = start + ready.length - 1;
+    requestAnimationFrame(() => editor?.caret?.setToBlock?.(lastIdx, 'end'));
+    markDirty();
+    scheduleUndoSnapshot();
+    showToast(t('mdPasteConverted', ready.length));
+  } catch (err) {
+    console.error('[markdownImport] paste conversion failed', err);
+    showToast(t('mdImportFailed'));
+  }
+}
+
+// Links between Markdown files imported together (e.g. "[Setup](setup.md#install)")
+// are rewritten to point at the pages created from those files.
+function rewriteImportedPageLinks(value, pageIdByFile) {
+  if (typeof value === 'string') {
+    return value.replace(/<a href="([^"]*)"([^>]*)>/g, (m, href, rest) => {
+      let name = href.replace(/&amp;/g, '&').split(/[?#]/)[0].split('/').pop() || '';
+      try { name = decodeURIComponent(name); } catch (e) {}
+      const id = pageIdByFile.get(name.toLowerCase());
+      return id ? `<a href="?page=${id}" data-page-id="${id}">` : m;
+    });
+  }
+  if (Array.isArray(value)) return value.map(v => rewriteImportedPageLinks(v, pageIdByFile));
+  if (value && typeof value === 'object') {
+    const out = {};
+    Object.keys(value).forEach(k => { out[k] = rewriteImportedPageLinks(value[k], pageIdByFile); });
+    return out;
+  }
+  return value;
+}
+
+// Create one page per Markdown file — as root pages of the current space, or as
+// subpages when dropped onto a page in the sidebar.
+async function importMarkdownFiles(mdFiles, imageFiles = [], parentId = null) {
+  if (!S.authed || !mdFiles.length) return;
+  const parent = parentId ? S.pages.find(p => p.id === parentId) : null;
+  const spaceId = parent ? parent.spaceId : S.currentSpaceId;
+  const imageMap = new Map(imageFiles.map(f => [f.name.toLowerCase(), f]));
+  const uploaded = new Map();
+  const created = [];
+  const pageIdByFile = new Map();
+
+  showToast(t('mdImporting'));
+  try {
+    const sorted = [...mdFiles].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    for (const file of sorted) {
+      const source = await file.text();
+      const { blocks, title, subtitle } = markdownToBlocks(source, { extractTitle: true });
+      const pageTitle = (title || file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ')).trim().slice(0, 200) || file.name;
+      const siblings = S.pages.filter(p => p.spaceId === spaceId && p.parentId === (parent ? parent.id : null));
+      const page = {
+        id: pageSlug(pageTitle),
+        spaceId,
+        parentId: parent ? parent.id : null,
+        title: pageTitle,
+        icon: 'fa-file-lines',
+        subtitle: subtitle || '',
+        section: null,
+        order: siblings.length,
+        content: { blocks: await resolveMarkdownImages(blocks, imageMap, uploaded) },
+        cover: null,
+        _contentLoaded: true,
+      };
+      S.pages.push(page);
+      created.push(page);
+      pageIdByFile.set(file.name.toLowerCase(), page.id);
+    }
+
+    for (const page of created) {
+      page.content = rewriteImportedPageLinks(page.content, pageIdByFile);
+      await savePageToServer(page);
+    }
+    await save();
+    await navigateTo(created[0].id);
+    showToast(t('mdImportDone', created.length));
+  } catch (err) {
+    console.error('[markdownImport] file import failed', err);
+    if (created.length) renderNav();
+    showToast(t('mdImportFailed'));
+  }
+}
+
+function isFileDrag(e) {
+  return Array.from(e.dataTransfer?.types || []).includes('Files');
+}
+
+// While dragging, only MIME types are readable (not file names). Images and
+// videos keep going to their own drop zones; anything else may be Markdown
+// (its type is often "" or "text/markdown").
+function isPossibleMarkdownDrag(e) {
+  if (!isFileDrag(e)) return false;
+  return Array.from(e.dataTransfer.items || []).some(it => it.kind === 'file' && !/^(image|video)\//.test(it.type));
+}
+
+let _mdDropHintEl = null;
+let _mdDropHintTimer = null;
+
+function showMdDropHint(parentPage) {
+  if (!_mdDropHintEl) {
+    _mdDropHintEl = document.createElement('div');
+    _mdDropHintEl.className = 'md-drop-hint';
+    document.body.appendChild(_mdDropHintEl);
+  }
+  const text = parentPage ? t('mdDropHintChild', parentPage.title) : t('mdDropHint');
+  _mdDropHintEl.innerHTML = `<i class="fa-brands fa-markdown"></i><span>${esc(text)}</span>`;
+  _mdDropHintEl.classList.add('visible');
+  // dragleave is unreliable across child elements; hide once dragover stops firing.
+  clearTimeout(_mdDropHintTimer);
+  _mdDropHintTimer = setTimeout(hideMdDropHint, 200);
+}
+
+function hideMdDropHint() {
+  clearTimeout(_mdDropHintTimer);
+  _mdDropHintEl?.classList.remove('visible');
+}
+
+document.addEventListener('dragover', (e) => {
+  if (!S.authed || dragSrcId || !isPossibleMarkdownDrag(e)) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+  const navItem = e.target.closest?.('#nav-tree .nav-item[data-page-id]');
+  showMdDropHint(navItem ? S.pages.find(p => p.id === navItem.dataset.pageId) : null);
+}, true);
+
+document.addEventListener('drop', (e) => {
+  if (!S.authed || dragSrcId || !isFileDrag(e)) return;
+  hideMdDropHint();
+  const files = Array.from(e.dataTransfer.files || []);
+  const mdFiles = files.filter(f => isMarkdownFileName(f.name));
+  if (!mdFiles.length) return; // images/videos → their own drop zones
+  e.preventDefault();
+  e.stopPropagation();
+  const navItem = e.target.closest?.('#nav-tree .nav-item[data-page-id]');
+  navItem?.classList.remove('drag-over-above', 'drag-over-below', 'drag-over-child');
+  const imageFiles = files.filter(f => /^image\//.test(f.type));
+  importMarkdownFiles(mdFiles, imageFiles, navItem ? navItem.dataset.pageId : null);
+}, true);
+
+// A file dropped where nothing handled it would make the browser open it and
+// leave the editor (losing unsaved changes) — swallow it and explain instead.
+document.addEventListener('drop', (e) => {
+  if (!S.authed || e.defaultPrevented || !isFileDrag(e)) return;
+  e.preventDefault();
+  showToast(t('mdDropOnlyMarkdown'));
+});
 
 // ════════════════════════════════════════
 //  CUSTOM BLOCK MENU (replaces native settings)
@@ -4971,6 +5202,8 @@ function initDragDrop() {
     item.addEventListener('dragover', e => {
       e.preventDefault();
       clearDropMarkers();
+      // Files dragged in from the OS (Markdown import) nest as new subpages
+      if (!dragSrcId && isPossibleMarkdownDrag(e)) { item.classList.add('drag-over-child'); return; }
       if (!dragSrcId || dragForbiddenIds?.has(pageId)) { e.dataTransfer.dropEffect = 'none'; return; }
       item.classList.add('drag-over-' + navDropZone(item.getBoundingClientRect(), e.clientY));
     });
