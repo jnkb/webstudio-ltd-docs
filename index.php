@@ -201,6 +201,7 @@ $_ogData = (function() {
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
 <script src="assets/i18n.js"></script>
 <script src="assets/shared.js"></script>
+<script src="assets/markdown-export.js"></script>
 </head>
 <body>
 <!-- Google Translate init element — musí byť v DOM, schovaný offscreen -->
@@ -297,15 +298,21 @@ $_ogData = (function() {
         </div>
       </div>
       <div id="toc-admin-rating-slot"></div>
-        <div id="toc-share-section">
-          <div class="toc-sep"></div>
-          <div class="toc-share-box">
+      <div class="toc-page-actions">
+        <div class="toc-sep"></div>
+        <div class="toc-share-row" id="toc-share-row">
+          <div id="toc-share-section" class="toc-share-box">
             <div class="toc-feedback-label" data-i18n="tocShare">Share</div>
             <button class="toc-share-btn" onclick="sharePage()">
               <i class="fa-solid fa-link"></i>
               <span id="toc-share-label" data-i18n="tocShare">Share</span>
             </button>
           </div>
+          <!-- Markdown download stays visible when the share section is disabled -->
+          <button class="toc-md-btn" type="button" onclick="downloadPageMarkdown()" data-i18n-attr="title" data-i18n="tocDownloadMd" title="Download as Markdown">
+            <i class="fa-solid fa-arrow-down"></i><span class="toc-md-short">.md</span><span class="toc-md-long" data-i18n="tocDownloadMdShort">Download .md</span>
+          </button>
+        </div>
       </div>
     </div>
   </main>

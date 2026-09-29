@@ -296,6 +296,8 @@ function applySpaceTabsVisibility() {
 function applyShareSectionAvailability() {
     const shareSection = document.getElementById('toc-share-section');
     if (shareSection) shareSection.style.display = isShareSectionEnabled() ? '' : 'none';
+    const shareRow = document.getElementById('toc-share-row');
+    if (shareRow) shareRow.classList.toggle('share-off', !isShareSectionEnabled());
     const shortcutShareRow = document.getElementById('shortcut-share-row');
     if (shortcutShareRow) shortcutShareRow.style.display = isShareSectionEnabled() ? '' : 'none';
 }
@@ -749,6 +751,36 @@ function sharePage() {
             }, 2000);
         }
     });
+}
+
+// Download the current page as a .md file (conversion in assets/markdown-export.js).
+// In the editor's edit mode the unsaved editor state is exported.
+async function downloadPageMarkdown() {
+    const page = S.pages.find(p => p.id === S.currentPageId);
+    if (!page || typeof pageToMarkdown !== 'function') return;
+    let data = { title: page.title, subtitle: page.subtitle, content: page.content };
+    try {
+        if (S.editMode && typeof editor !== 'undefined' && editor && typeof editor.save === 'function') {
+            data.content = await editor.save();
+            const titleEl = document.getElementById('pg-title');
+            const descEl = document.getElementById('pg-desc');
+            if (titleEl && titleEl.value) data.title = titleEl.value;
+            if (descEl) data.subtitle = descEl.textContent;
+        } else if (!page._contentLoaded && typeof loadPageContent === 'function') {
+            await loadPageContent(page.id);
+            data.content = page.content;
+        }
+    } catch (e) { console.warn('Markdown export:', e); }
+    const baseUrl = window.location.origin + window.location.pathname.replace(/[^/]*$/, '');
+    const md = pageToMarkdown(data, { baseUrl });
+    const url = URL.createObjectURL(new Blob([md], { type: 'text/markdown;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = markdownFileName({ ...data, id: page.id });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 // ════════════════════════════════════════

@@ -19,6 +19,7 @@ Use this file as the default working context for changes in this repository. Kee
 - [auth.php](auth.php): setup wizard, login/logout, session state, password hashing, rate limiting.
 - [assets/app.css](assets/app.css), [assets/i18n.js](assets/i18n.js), [assets/shared.js](assets/shared.js): shared CSS, i18n/constants, and shared vanilla-JS helpers linked by both [index.php](index.php) and [editor.php](editor.php).
 - [assets/markdown-import.js](assets/markdown-import.js): editor-only Markdown → EditorJS block converter (`markdownToBlocks`, `looksLikeMarkdown`), linked after `shared.js` by [editor.php](editor.php) only. Used for Markdown paste into paragraph blocks and `.md` file drops that create pages. It must only emit block types/data the editor tools and the viewer's `renderBlocks()` already support; it also runs under Node (`module.exports`) for quick checks.
+- [assets/markdown-export.js](assets/markdown-export.js): the reverse direction — EditorJS page data → Markdown (`pageToMarkdown`, `markdownFileName`), linked by both [index.php](index.php) and [editor.php](editor.php). Powers the `.md` download button next to Share in the page sidebar (independent of the share-section setting) (`downloadPageMarkdown()` in `shared.js`). Emits syntax the importer reads back (GitHub alerts, `==mark==`, `<details>`); also runs under Node.
 - [data/](data/): persisted site settings, spaces, auth data, and one JSON file per page.
 - [.htaccess](.htaccess): Apache routing and protection expectations.
 
@@ -59,6 +60,7 @@ php -l api.php
 php -l auth.php
 node --check assets/i18n.js
 node --check assets/markdown-import.js
+node --check assets/markdown-export.js
 php -r 'foreach (glob("data/*.json") as $f) { json_decode(file_get_contents($f)); if (json_last_error()) { fwrite(STDERR, "$f\n"); exit(1); } }'
 php -r 'foreach (glob("data/pages/*.json") as $f) { json_decode(file_get_contents($f)); if (json_last_error()) { fwrite(STDERR, "$f\n"); exit(1); } }'
 ```

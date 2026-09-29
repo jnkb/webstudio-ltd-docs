@@ -1231,6 +1231,22 @@ h3.ce-header { font-size: 17px; font-weight: 600; margin: 0 0 2px; }
 .toc-share-btn i { color: var(--accent); font-size: 12px; flex-shrink: 0; }
 .toc-share-btn.copied { color: #22c55e; border-color: rgba(34,197,94,.3); background: rgba(34,197,94,.06); }
 .toc-share-btn.copied i { color: #22c55e !important; }
+.toc-share-row { display: flex; align-items: flex-end; gap: 6px; }
+.toc-share-row .toc-share-box { flex: 1; min-width: 0; }
+.toc-md-btn {
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  flex-shrink: 0; padding: 8px 9px; border-radius: 8px;
+  background: none; border: 1px solid var(--border);
+  color: var(--text3); font: 12px var(--font); cursor: pointer;
+  transition: all .15s;
+}
+.toc-md-btn:hover { background: var(--bg4); color: var(--text); border-color: var(--border2); }
+.toc-md-btn i { font-size: 11px; }
+.toc-md-long { display: none; }
+/* Share section disabled: the download button stands alone with its full label */
+.toc-share-row.share-off .toc-md-btn { flex: 1; justify-content: flex-start; gap: 8px; padding: 8px 10px; font-size: 13px; text-align: left; white-space: nowrap; }
+.toc-share-row.share-off .toc-md-short { display: none; }
+.toc-share-row.share-off .toc-md-long { display: inline; }
 .fb-btn {
   width: 28px; height: 28px; border-radius: 5px;
   border: 1px solid var(--border); background: none; cursor: pointer;

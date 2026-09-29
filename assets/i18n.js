@@ -76,7 +76,7 @@ const TRANSLATIONS = {
         savingLabel: 'Saving...', savingBtn: 'Saving...',
         // ── TOC ──
         tocTitle: 'On this page', tocNoHeadings: 'No headings', tocFeedback: 'Was this helpful?',
-        tocShare: 'Share', tocShareCopied: 'Copied!',
+        tocShare: 'Share', tocShareCopied: 'Copied!', tocDownloadMd: 'Download as Markdown', tocDownloadMdShort: 'Download .md',
         // ── Modals — Add page ──
         modalAddTitle: 'New page', modalAddPageName: 'Page title',
         modalAddIcon: 'Icon (e.g. fa-file)', modalAddSectionLabel: 'Section (optional)', modalAddSection: 'Section (e.g. GET STARTED)',
@@ -295,7 +295,7 @@ const TRANSLATIONS = {
         searchPlaceholder: 'Suchen...', searchNoResults: 'Keine Ergebnisse',
         savingLabel: 'Wird gespeichert...', savingBtn: 'Wird gespeichert...',
         tocTitle: 'Auf dieser Seite', tocNoHeadings: 'Keine Überschriften', tocFeedback: 'War das hilfreich?',
-        tocShare: 'Teilen', tocShareCopied: 'Kopiert!',
+        tocShare: 'Teilen', tocShareCopied: 'Kopiert!', tocDownloadMd: 'Als Markdown herunterladen', tocDownloadMdShort: '.md herunterladen',
         modalAddTitle: 'Neue Seite', modalAddPageName: 'Seitentitel',
         modalAddIcon: 'Symbol (z. B. fa-file)', modalAddSectionLabel: 'Abschnitt (optional)', modalAddSection: 'Abschnitt (z. B. ERSTE SCHRITTE)',
         modalAddTemplate: 'Vorlage', btnCreate: 'Erstellen', btnCancel: 'Abbrechen',
@@ -493,7 +493,7 @@ const TRANSLATIONS = {
         savingLabel: 'Ukladá sa...', savingBtn: 'Ukladá sa...',
         // ── TOC ──
         tocTitle: 'Na tejto stránke', tocNoHeadings: 'Žiadne nadpisy', tocFeedback: 'Bolo to užitočné?',
-        tocShare: 'Zdieľať', tocShareCopied: 'Skopírované!',
+        tocShare: 'Zdieľať', tocShareCopied: 'Skopírované!', tocDownloadMd: 'Stiahnuť ako Markdown', tocDownloadMdShort: 'Stiahnuť .md',
         // ── Modals — Add page ──
         modalAddTitle: 'Nová stránka', modalAddPageName: 'Názov stránky',
         modalAddIcon: 'Ikona (napr. fa-file)', modalAddSectionLabel: 'Sekcia (voliteľná)', modalAddSection: 'Sekcia (napr. PRVÉ KROKY)',
