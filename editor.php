@@ -26,11 +26,16 @@ $_ogData = (function() {
     $accent   = $settings['accentColor'] ?? '#f97316';
     $page     = null;
 
+    // Id of the stored page the meta below describes (requested or fallback);
+    // only this server-side id names the cached OG image, never request input.
+    $ogPageId = '';
+
     if ($pageId) {
         $page = $readJson($pagesDir . "/{$pageId}.json");
         // Drafts and pages below a draft are not public: same meta as for a
         // page that does not exist (no title/subtitle/cover leak).
         if ($page && pageIsPubliclyHidden($pageId)) $page = null;
+        if ($page) $ogPageId = $pageId;
     }
 
     // Fallback: first page of first space
@@ -41,11 +46,12 @@ $_ogData = (function() {
             foreach (glob($pagesDir . '/*.json') ?: [] as $f) {
                 $p = $readJson($f);
                 if ($p && empty($p['draft']) && ($p['spaceId'] ?? '') === $sid && empty($p['parentId'])) {
-                    if (!$page || ($p['order'] ?? 0) < ($page['order'] ?? 0)) $page = $p;
+                    if (!$page || ($p['order'] ?? 0) < ($page['order'] ?? 0)) { $page = $p; $ogPageId = basename($f, '.json'); }
                 }
             }
         }
     }
+    if (!preg_match('/^[A-Za-z0-9_-]+$/', $ogPageId)) $ogPageId = '';
 
     $title = $page ? ($page['title'] ?? 'Docs') : $siteName;
     $desc  = $page && !empty($page['subtitle']) ? $page['subtitle'] : "{$siteName} documentation";
@@ -63,13 +69,19 @@ $_ogData = (function() {
     }
 
     // Generate OG image if no cover image
-    if (!$imgUrl && $page && function_exists('imagecreatetruecolor')) {
+    if (!$imgUrl && $page && $ogPageId !== '' && function_exists('imagecreatetruecolor')) {
         if (!is_dir($ogImgDir)) @mkdir($ogImgDir, 0755, true);
-        
-        // Include cover color in hash so it regenerates if cover changes
-        $coverVal = $page['cover']['value'] ?? '';
-        $hash = md5($pageId . $title . ($page['subtitle'] ?? '') . $accent . $coverVal . $siteName);
-        $cache = $ogImgDir . "/{$hash}.png";
+
+        // Cache file: og/<pageId>-<hash>.png. The hash covers only stored data
+        // that is drawn into the image (title, subtitle, cover, accent, site
+        // name), so one file per page and it regenerates when that data changes.
+        $hash = md5(json_encode([
+            $page['title'] ?? 'Docs', $page['subtitle'] ?? '',
+            $page['cover']['type'] ?? '', $page['cover']['value'] ?? '',
+            $accent, $siteName,
+        ]));
+        $cacheName = "{$ogPageId}-{$hash}.png";
+        $cache = $ogImgDir . '/' . $cacheName;
 
         if (!file_exists($cache)) {
             $w = 1200; $h = 630;
@@ -140,7 +152,19 @@ $_ogData = (function() {
                 imagestring($img, 3, $w - 200, 30, $siteName, $whiteA70);
             }
 
-            imagepng($img, $cache, 0);
+            // Write atomically, then drop this page's older images and
+            // legacy <md5>.png files from the old request-keyed scheme.
+            $tmp = $cache . '.' . getmypid() . '.tmp';
+            if (@imagepng($img, $tmp, 6) && @rename($tmp, $cache)) {
+                $own = '/^' . preg_quote($ogPageId, '/') . '-[0-9a-f]{32}\.png$/';
+                foreach (glob($ogImgDir . '/*.png') ?: [] as $old) {
+                    $n = basename($old);
+                    if ($n !== $cacheName && (preg_match($own, $n) || preg_match('/^[0-9a-f]{32}\.png$/', $n))) @unlink($old);
+                }
+            } else {
+                @unlink($tmp);
+            }
+            imagedestroy($img);
         }
         if (file_exists($cache)) {
             $proto = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
