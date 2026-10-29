@@ -25,6 +25,7 @@ The main changes are:
 - **Preserved table line breaks** — multi-line table cells now keep their line breaks during save and render.
 - **PHP 8.5 compatibility updates** — the fork includes fixes for current PHP deprecations and edge cases.
 - **Header slash menu fix** — the header slash menu behavior was corrected in the customized frontend.
+- **AI agent access via MCP** — `mcp.php` lets AI agents such as Claude Code read, search, write, and organize the docs with revocable bearer tokens created in Settings; everything they write is sanitized on the server.
 
 ---
 
@@ -48,6 +49,7 @@ The main changes are:
   <a href="#-features">Features</a> •
   <a href="#-screenshots">Screenshots</a> •
   <a href="#-roadmap">Roadmap</a> •
+  <a href="#-ai-agents-mcp">AI Agents (MCP)</a> •
   <a href="#-contributing">Contributing</a>
 </p>
 
@@ -217,6 +219,8 @@ your-docs-site/
 ├── index.php      ← Public viewer (read-only frontend + OG tag generation)
 ├── editor.php     ← Admin editor UI
 ├── api.php        ← Backend API (pages, spaces, images, settings)
+├── mcp.php        ← MCP server for AI agents (bearer tokens)
+├── storage.php    ← Shared storage helpers for api.php + mcp.php (not web-accessible)
 ├── auth.php       ← Authentication (setup wizard, login, sessions)
 ├── .htaccess      ← Security (blocks /data/ from direct access)
 ├── assets/
@@ -226,6 +230,7 @@ your-docs-site/
 │   ├── index.php      ← Directory protection helper
 │   ├── access_key.txt ← Optional simple access gate token
 │   ├── auth.json      ← Hashed password (bcrypt)
+│   ├── mcp_tokens.json ← MCP access tokens (SHA-256 hashes only)
 │   ├── settings.json  ← Site configuration
 │   ├── spaces.json    ← Space definitions
 │   ├── pages/         ← One JSON file per page
@@ -310,6 +315,115 @@ Example:
 ```
 
 If the optional access gate is enabled, unlock the viewer once with `?token=...` on the docs domain first. After that, normal viewer navigation keeps clean URLs without repeating the token parameter.
+
+---
+
+## 🤖 AI Agents (MCP)
+
+`mcp.php` is a [Model Context Protocol](https://modelcontextprotocol.io) server. AI agents such as Claude Code, Claude Desktop, or any other MCP client can use it to read, search, write, and organize your documentation — everything an admin can do with content in the editor.
+
+It speaks MCP over **Streamable HTTP** (plain `POST` with JSON responses, no SSE, no sessions), so it runs on any PHP hosting without a background process. Agents authenticate with a bearer token.
+
+### 1. Create an access token
+
+1. Open `editor.php` and log in.
+2. Go to **Settings → AI agents (MCP)**. The section shows the endpoint URL (`https://your-domain.example/mcp.php`) with a copy button.
+3. Click **Create token**, give it a name you will recognise later (e.g. "Claude Code on my laptop").
+4. Copy the token (`wsd_…`) right away — **it is shown only once**. The dialog also shows ready-to-paste setup snippets for Claude Code and for other MCP clients.
+
+The same section lists all tokens with a short hint, creation date, and last use, and lets you **revoke** each one. A revoked token stops working immediately. Up to 20 tokens can exist at the same time.
+
+### 2. Connect an agent
+
+**Claude Code:**
+
+```bash
+claude mcp add --transport http docs https://your-domain.example/mcp.php \
+  --header "Authorization: Bearer wsd_your_token"
+```
+
+**Other MCP clients** that support HTTP servers with custom headers (JSON config):
+
+```json
+{
+  "mcpServers": {
+    "docs": {
+      "type": "http",
+      "url": "https://your-domain.example/mcp.php",
+      "headers": { "Authorization": "Bearer wsd_your_token" }
+    }
+  }
+}
+```
+
+**Claude Desktop** — its custom connectors cannot send a static `Authorization` header, so bridge the server through [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) in `claude_desktop_config.json` (needs Node.js):
+
+```json
+{
+  "mcpServers": {
+    "docs": {
+      "command": "npx",
+      "args": ["mcp-remote", "https://your-domain.example/mcp.php", "--header", "Authorization:${DOCS_AUTH}"],
+      "env": { "DOCS_AUTH": "Bearer wsd_your_token" }
+    }
+  }
+}
+```
+
+Once connected, the server tells the agent how to get started: read the structure with `get_site` and `list_pages`, and read `get_content_guide` before writing content.
+
+### Tools
+
+| Group | Tools |
+|---|---|
+| **Read** | `get_site`, `list_pages`, `get_page`, `search_pages`, `get_content_guide`, `list_images`, `get_settings` |
+| **Pages** | `create_page`, `update_page`, `edit_blocks`, `move_page`, `reorder_pages`, `set_page_id`, `delete_page`, `rename_section`, `set_section` |
+| **Spaces & settings** | `create_space`, `update_space`, `delete_space`, `update_settings` |
+| **Media** | `upload_image`, `delete_image` |
+
+Notes:
+
+- Page content is written and returned as **EditorJS blocks** (the same format the editor stores), not Markdown. `get_content_guide` documents all 14 block types, their fields, and the allowed inline HTML.
+- `update_page` and `edit_blocks` accept `if_updated_at` (the `updatedAt` value the agent read). If the page changed in the meantime, the write is rejected instead of overwriting someone else's edits.
+- `delete_page` and `delete_space` move pages into `data/trash/pages` — nothing is hard-deleted. A page with subpages is only deleted with `include_children: true`; `delete_space` needs `confirm: true` and refuses to delete the last space.
+- `set_page_id` changes a page URL and rewrites internal links and card links to it in all pages. External links to the old `?page=` URL stop working.
+- `update_settings` cannot change the logo or favicon. `delete_image` refuses images that pages still use (unless `force: true`) and deletes the file permanently.
+
+### Uploading images and videos
+
+`upload_image` accepts either `data_base64` or a `source_url` that the server downloads (http/https, max. 3 redirects, 20 s). Base64 costs the agent a lot of tokens, so agents with shell access should send local files straight to the raw upload endpoint instead:
+
+```bash
+# Images: PNG, JPEG, GIF, WebP — max. 10 MB, no SVG
+curl -H "Authorization: Bearer wsd_your_token" --data-binary @screenshot.png \
+  "https://your-domain.example/mcp.php?upload=image&filename=screenshot.png"
+
+# Videos: MP4, WebM, Ogg — use PUT (-T) for large files
+curl -T demo.mp4 -H "Authorization: Bearer wsd_your_token" \
+  "https://your-domain.example/mcp.php?upload=video&filename=demo.mp4"
+```
+
+The endpoint takes the file itself as the request body (`POST` or `PUT`, not a multipart form) and answers with plain JSON: the root-relative `url` to store, an `absoluteUrl`, and a ready-to-use `block` for an image or video block. `curl -T` sends a `PUT`, which avoids PHP `post_max_size` warnings for big videos. Videos can also be embedded from YouTube or Vimeo with a video block.
+
+### Security
+
+- **A token has full admin rights for content.** Anyone who holds it can create, change, and delete pages, spaces, settings, and images. Treat it like your admin password, and give each agent or machine its own token so you can revoke it on its own.
+- **Revoke** unused or leaked tokens in Settings → AI agents (MCP). Revoked or unknown tokens get `401 Unauthorized`.
+- **Only a SHA-256 hash is stored** in `data/mcp_tokens.json` (protected like the rest of `data/`). The plain token cannot be recovered — create a new one if it gets lost.
+- **Everything an agent writes is sanitized on the server**: inline HTML is reduced to a whitelist of tags and attributes, links are limited to safe schemes, and icons and cover values are validated. A prompt-injected agent cannot plant scripts in your public docs or in the editor.
+- The bearer token replaces the optional access gate for `mcp.php`; agents do not need the access cookie.
+
+### Known limitations
+
+- **Concurrent editing** — the editor writes `spaces.json` and `settings.json` as a whole on every save, and a page that is open in the editor is saved from its in-browser copy. If an editor tab is open while an agent works, that tab can overwrite the agent's changes. **Reload the editor after an agent has made changes.** Agents protect their own writes with `if_updated_at`; there is no real locking.
+- **No Markdown via MCP** — agents read and write EditorJS blocks. The Markdown import/export in the editor runs in the browser only.
+- **No token scopes and no OAuth** — every token has full rights. Clients that try OAuth discovery after a `401` fail with their own error message; in that case, check the token.
+- `footerTailHtml` and `footerText` written through MCP are limited to the inline HTML whitelist.
+
+### Server requirements
+
+- **Authorization header** — on PHP-FPM / CGI hosts Apache drops the `Authorization` header unless it is passed through. The bundled `.htaccess` already does this (`RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]`); keep it when you customise the file. Nginx passes the header to PHP-FPM by default.
+- **PHP curl extension** — only needed for `upload_image` with `source_url`. Everything else, including the raw upload endpoint, works without it.
 
 ---
 
