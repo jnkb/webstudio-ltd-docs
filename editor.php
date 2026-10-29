@@ -668,6 +668,29 @@ $_ogData = (function() {
       </div>
     </div>
 
+    <div class="settings-section" id="settings-mcp-section" style="display:none">
+      <div class="settings-section-label" data-i18n="settingsMcp">AI agents (MCP)</div>
+      <div class="settings-row-sub" data-i18n="settingsMcpSub">Let AI agents such as Claude Code read and edit this documentation via MCP. Every token has full admin rights for content.</div>
+      <div class="settings-row mcp-stack">
+        <div class="settings-row-label" data-i18n="settingsMcpEndpoint">Endpoint</div>
+        <div class="mcp-copy-field">
+          <code id="mcp-endpoint">…</code>
+          <button class="icon-btn mcp-copy-btn" type="button" onclick="copyMcpEndpoint(this)" data-i18n-attr="title" data-i18n="codeCopy" title="Copy">
+            <i class="fa-regular fa-copy"></i>
+          </button>
+        </div>
+      </div>
+      <div class="settings-row mcp-stack">
+        <div class="settings-row-label" data-i18n="settingsMcpTokens">Access tokens</div>
+        <div id="mcp-token-list" class="mcp-token-list"></div>
+      </div>
+      <div class="settings-row">
+        <button class="btn btn-ghost" type="button" onclick="openMcpTokenModal()" style="font-size:12px">
+          <i class="fa-solid fa-plus"></i> <span data-i18n="btnMcpCreateToken">Create token</span>
+        </button>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -794,6 +817,70 @@ $_ogData = (function() {
       <button class="btn btn-primary" id="change-pw-btn" onclick="submitChangePassword()" disabled>
         <i class="fa-solid fa-key"></i> <span data-i18n="changePwBtn">Update password</span>
       </button>
+    </div>
+  </div>
+</div>
+
+<!-- MCP TOKEN OVERLAY -->
+<div class="auth-overlay" id="mcp-token-overlay">
+  <div class="setup-box mcp-token-box">
+    <div class="setup-icon"><i class="fa-solid fa-robot"></i></div>
+
+    <div id="mcp-token-step-name">
+      <div class="setup-title" data-i18n="mcpModalTitle">Create access token</div>
+      <div class="setup-sub" data-i18n="mcpModalSub">Name the token after the agent or machine that will use it, so you can recognise it later.</div>
+      <div class="setup-field">
+        <label for="mcp-token-name" data-i18n="mcpModalName">Name</label>
+        <input type="text" id="mcp-token-name" class="field-input" maxlength="60" autocomplete="off"
+          data-i18n-ph="mcpModalNamePh" placeholder="e.g. Claude Code on my laptop"
+          onkeydown="if(event.key==='Enter')submitMcpToken()">
+      </div>
+      <div class="setup-error" id="mcp-token-error"></div>
+      <div class="auth-actions">
+        <button class="btn btn-ghost" type="button" onclick="closeMcpTokenModal()" data-i18n="btnCancel">Cancel</button>
+        <button class="btn btn-primary" type="button" id="mcp-token-create-btn" onclick="submitMcpToken()">
+          <i class="fa-solid fa-plus"></i> <span data-i18n="btnMcpCreateToken">Create token</span>
+        </button>
+      </div>
+    </div>
+
+    <div id="mcp-token-step-done" style="display:none">
+      <div class="setup-title" data-i18n="mcpModalDoneTitle">Token created</div>
+      <div class="setup-sub mcp-token-warning">
+        <i class="fa-solid fa-triangle-exclamation"></i> <span data-i18n="mcpModalDoneSub">Copy the token now. It will not be shown again.</span>
+      </div>
+      <div class="setup-field">
+        <label data-i18n="mcpModalToken">Token</label>
+        <div class="mcp-copy-field">
+          <code id="mcp-token-value"></code>
+          <button class="icon-btn mcp-copy-btn" type="button" onclick="copyMcpSnippet('mcp-token-value', this)" data-i18n-attr="title" data-i18n="codeCopy" title="Copy">
+            <i class="fa-regular fa-copy"></i>
+          </button>
+        </div>
+      </div>
+      <div class="setup-field">
+        <label data-i18n="mcpModalClaudeCode">Claude Code</label>
+        <div class="mcp-copy-field">
+          <code id="mcp-snippet-cli"></code>
+          <button class="icon-btn mcp-copy-btn" type="button" onclick="copyMcpSnippet('mcp-snippet-cli', this)" data-i18n-attr="title" data-i18n="codeCopy" title="Copy">
+            <i class="fa-regular fa-copy"></i>
+          </button>
+        </div>
+      </div>
+      <div class="setup-field">
+        <label data-i18n="mcpModalJson">Other MCP clients (JSON config)</label>
+        <div class="mcp-copy-field">
+          <code id="mcp-snippet-json" class="mcp-snippet-pre"></code>
+          <button class="icon-btn mcp-copy-btn" type="button" onclick="copyMcpSnippet('mcp-snippet-json', this)" data-i18n-attr="title" data-i18n="codeCopy" title="Copy">
+            <i class="fa-regular fa-copy"></i>
+          </button>
+        </div>
+      </div>
+      <div class="auth-actions" style="margin-top:20px">
+        <button class="btn btn-primary" type="button" onclick="closeMcpTokenModal()">
+          <i class="fa-solid fa-check"></i> <span data-i18n="mcpModalDone">Done</span>
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -1302,6 +1389,7 @@ function setLang(lang) {
   renderPage();
   syncEditUI();
   updateAdminUI();
+  renderMcpTokens();
 }
 
 function toggleTranslateAvailability() {
@@ -1418,6 +1506,7 @@ function removeFavicon() {
 function openSettings() {
   document.getElementById('settings-panel').classList.add('open');
   document.getElementById('settings-overlay').classList.add('open');
+  loadMcpTokens();
 }
 function closeSettings() {
   document.getElementById('settings-panel').classList.remove('open');
@@ -4678,6 +4767,8 @@ document.addEventListener('keydown', e => {
   }
   // Cmd/Ctrl+K (focus search) is registered in assets/shared.js
   if (e.key === 'Escape') {
+    // A token is shown only once: Escape closes just the token modal, not the settings behind it.
+    if (closeMcpTokenModal()) return;
     closeModal('add-modal');
     closeSettings();
     closeSearchDD();
@@ -4780,6 +4871,8 @@ function updateAdminUI() {
   // Pin setup section in settings
   const pinSection = document.getElementById('settings-pin-section');
   if (pinSection) pinSection.style.display = S.authed ? '' : 'none';
+  const mcpSection = document.getElementById('settings-mcp-section');
+  if (mcpSection) mcpSection.style.display = S.authed ? '' : 'none';
   // Update tab strip add button
   renderSpaces();
 }
@@ -5085,6 +5178,219 @@ async function submitChangePassword() {
     btn.disabled = false;
     btn.innerHTML = `<i class="fa-solid fa-key"></i> <span>${t('changePwBtn')}</span>`;
   }
+}
+
+// ════════════════════════════════════════
+//  AI AGENTS (MCP) — access tokens (api.php?action=mcp_token*)
+// ════════════════════════════════════════
+// S.mcp.status: 'idle' | 'loading' | 'ready' | 'error'
+S.mcp = { status: 'idle', tokens: [], endpoint: '' };
+
+// navigator.clipboard needs a secure context; fall back to execCommand on plain-HTTP LAN installs.
+function copyTextToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text);
+  }
+  return new Promise((resolve, reject) => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none';
+    // Append inside the open overlay so focus traps don't block the selection
+    (document.querySelector('.auth-overlay.open') || document.body).appendChild(ta);
+    ta.select();
+    let done = false;
+    try { done = document.execCommand('copy'); } catch (e) { done = false; }
+    ta.remove();
+    done ? resolve() : reject(new Error('copy failed'));
+  });
+}
+
+function flashCopied(btn) {
+  if (!btn) return;
+  const icon = btn.querySelector('i');
+  if (icon) icon.className = 'fa-solid fa-check';
+  btn.classList.add('copied');
+  clearTimeout(btn._copyTimer);
+  btn._copyTimer = setTimeout(() => {
+    if (icon) icon.className = 'fa-regular fa-copy';
+    btn.classList.remove('copied');
+  }, 1500);
+}
+
+function copyMcpText(text, btn) {
+  if (!text) return;
+  copyTextToClipboard(text)
+    .then(() => { flashCopied(btn); showToast(t('toastCopied')); })
+    .catch(() => showToast(t('toastCopyFailed')));
+}
+
+function copyMcpEndpoint(btn) {
+  copyMcpText(S.mcp.endpoint, btn);
+}
+
+function copyMcpSnippet(id, btn) {
+  copyMcpText(document.getElementById(id)?.textContent || '', btn);
+}
+
+async function loadMcpTokens() {
+  if (!S.authed) return;
+  if (S.mcp.status !== 'ready') S.mcp.status = 'loading';
+  renderMcpTokens();
+  try {
+    const r = await fetch('api.php?action=mcp_tokens', { credentials: 'same-origin' });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'load failed');
+    S.mcp.tokens = Array.isArray(d.tokens) ? d.tokens : [];
+    S.mcp.endpoint = d.endpoint || '';
+    S.mcp.status = 'ready';
+  } catch (e) {
+    S.mcp.status = 'error';
+  }
+  renderMcpTokens();
+}
+
+function renderMcpTokens() {
+  const endpointEl = document.getElementById('mcp-endpoint');
+  const list = document.getElementById('mcp-token-list');
+  if (!endpointEl || !list) return;
+  endpointEl.textContent = S.mcp.endpoint || '…';
+
+  if (S.mcp.status === 'error') {
+    list.innerHTML = `<div class="mcp-token-empty mcp-token-error"><i class="fa-solid fa-circle-exclamation"></i> ${esc(t('settingsMcpLoadError'))}</div>`;
+    return;
+  }
+  if (S.mcp.status !== 'ready') {
+    list.innerHTML = `<div class="mcp-token-empty"><i class="fa-solid fa-spinner fa-spin"></i> ${esc(t('settingsMcpLoading'))}</div>`;
+    return;
+  }
+  if (!S.mcp.tokens.length) {
+    list.innerHTML = `<div class="mcp-token-empty">${esc(t('settingsMcpNoTokens'))}</div>`;
+    return;
+  }
+  list.innerHTML = S.mcp.tokens.map(tok => {
+    const lastUsed = tok.lastUsedAt ? t('mcpTokenLastUsed', formatDate(tok.lastUsedAt)) : t('mcpTokenNeverUsed');
+    return `<div class="mcp-token-item">
+      <div class="mcp-token-head">
+        <div class="mcp-token-info">
+          <div class="mcp-token-name">${esc(tok.name)}</div>
+          <code class="mcp-token-hint">${esc(tok.hint)}</code>
+        </div>
+        <button class="btn btn-ghost mcp-token-revoke" type="button" data-token-id="${esc(tok.id)}">
+          <i class="fa-solid fa-ban"></i> <span>${esc(t('btnRevoke'))}</span>
+        </button>
+      </div>
+      <div class="mcp-token-meta">${esc(t('mcpTokenCreated', formatDate(tok.createdAt)))}</div>
+      <div class="mcp-token-meta">${esc(lastUsed)}</div>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('.mcp-token-revoke').forEach(btn => {
+    btn.onclick = () => revokeMcpToken(btn.dataset.tokenId);
+  });
+}
+
+function revokeMcpToken(id) {
+  const tok = S.mcp.tokens.find(x => x.id === id);
+  if (!tok) return;
+  showConfirm({
+    title: t('confirmRevokeTokenTitle'),
+    msg: t('confirmRevokeTokenMsg', tok.name),
+    icon: 'fa-ban', iconType: 'danger',
+    okLabel: t('btnRevoke'), okClass: 'btn-danger',
+    onOk: async () => {
+      try {
+        const r = await fetch('api.php?action=mcp_token_revoke', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id })
+        });
+        const d = await r.json();
+        if (!d.ok) throw new Error(d.error || 'revoke failed');
+        S.mcp.tokens = S.mcp.tokens.filter(x => x.id !== id);
+        renderMcpTokens();
+        showToast(t('toastTokenRevoked'));
+      } catch (e) {
+        showToast(t('toastTokenRevokeError'));
+      }
+      loadMcpTokens();
+    }
+  });
+}
+
+function setMcpTokenStep(step) {
+  document.getElementById('mcp-token-step-name').style.display = step === 'name' ? '' : 'none';
+  document.getElementById('mcp-token-step-done').style.display = step === 'done' ? '' : 'none';
+}
+
+function resetMcpCreateBtn() {
+  const btn = document.getElementById('mcp-token-create-btn');
+  btn.disabled = false;
+  btn.innerHTML = `<i class="fa-solid fa-plus"></i> <span>${esc(t('btnMcpCreateToken'))}</span>`;
+}
+
+function openMcpTokenModal() {
+  if (!S.authed) return;
+  document.getElementById('mcp-token-name').value = '';
+  document.getElementById('mcp-token-error').innerHTML = '';
+  clearMcpTokenSecret();
+  setMcpTokenStep('name');
+  applyTranslations();
+  resetMcpCreateBtn();
+  document.getElementById('mcp-token-overlay').classList.add('open');
+  setTimeout(() => document.getElementById('mcp-token-name').focus(), 80);
+}
+
+// The plain token exists only in this modal; wipe it from the DOM when the modal closes.
+function clearMcpTokenSecret() {
+  ['mcp-token-value', 'mcp-snippet-cli', 'mcp-snippet-json'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = '';
+  });
+}
+
+function closeMcpTokenModal() {
+  const overlay = document.getElementById('mcp-token-overlay');
+  if (!overlay.classList.contains('open')) return false;
+  overlay.classList.remove('open');
+  clearMcpTokenSecret();
+  setMcpTokenStep('name');
+  return true;
+}
+
+async function submitMcpToken() {
+  const btn = document.getElementById('mcp-token-create-btn');
+  if (btn.disabled) return;
+  const errEl = document.getElementById('mcp-token-error');
+  const name = document.getElementById('mcp-token-name').value.trim();
+  btn.disabled = true;
+  btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>${esc(t('mcpModalCreating'))}</span>`;
+  errEl.innerHTML = '';
+  let d = null;
+  try {
+    const r = await fetch('api.php?action=mcp_token_create', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    d = await r.json();
+  } catch (e) {
+    d = null;
+  }
+  if (!d || !d.ok || !d.token) {
+    errEl.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ${esc(d?.error || t('mcpCreateError'))}`;
+    resetMcpCreateBtn();
+    return;
+  }
+  const endpoint = d.endpoint || S.mcp.endpoint;
+  document.getElementById('mcp-token-value').textContent = d.token;
+  document.getElementById('mcp-snippet-cli').textContent =
+    `claude mcp add --transport http docs ${endpoint} --header "Authorization: Bearer ${d.token}"`;
+  document.getElementById('mcp-snippet-json').textContent = JSON.stringify({
+    mcpServers: { docs: { type: 'http', url: endpoint, headers: { Authorization: `Bearer ${d.token}` } } }
+  }, null, 2);
+  setMcpTokenStep('done');
+  resetMcpCreateBtn();
+  loadMcpTokens();
 }
 
 // ════════════════════════════════════════
