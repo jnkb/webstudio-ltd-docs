@@ -12,7 +12,9 @@
  *    answer is plain application/json (no SSE, no sessions).
  *  - Auth: "Authorization: Bearer wsd_…" (tokens from the editor settings,
  *    verified by mcpTokenVerify() in storage.php). access_guard.php is NOT
- *    loaded: the bearer token replaces the access cookie.
+ *    loaded: the bearer token replaces the access cookie. The one exception
+ *    is ?upload=…&ticket=wsu_…: a single-use upload URL from
+ *    create_upload_url, which authenticates that one upload by itself.
  *  - Everything an agent writes goes through the sanitizers below, because
  *    the viewer renders HTML fields, icons and cover values unfiltered.
  *
@@ -21,7 +23,7 @@
  *   2. Shared helpers: arguments, sanitizers, block normalizer, URLs, pages
  *   3. Tool registry (mcpTool)
  *   4. TOOLS
- *   5. Raw upload hook (?upload=image|video)
+ *   5. Raw upload hook (?upload=image|video, bearer token or &ticket=)
  *   6. JSON-RPC dispatcher + HTTP entry point
  */
 
@@ -45,6 +47,14 @@ function err($msg, $code = 400) {
 // Part of the entry-point contract, but tools return arrays instead.
 function ok($data = []) {
     throw new LogicException('ok() is not available in mcp.php; return an array from the tool handler');
+}
+
+// Verified bearer token entry of the current request (set by mcpMain();
+// CLI tests set it themselves). create_upload_url needs its id.
+function mcpAuthToken(?array $set = null): ?array {
+    static $token = null;
+    if ($set !== null) $token = $set;
+    return $token;
 }
 
 const MCP_SERVER_VERSION   = '1.0.0';
@@ -1217,7 +1227,7 @@ function mcpStreamToFile($in, string $path, int $max): int {
     return $n;
 }
 
-const MCP_DOWNLOAD_BLOCKED_MSG = 'source_url must point to a public internet address (also after redirects). For local or LAN files send data_base64 or use the raw upload endpoint.';
+const MCP_DOWNLOAD_BLOCKED_MSG = 'source_url must point to a public internet address (also after redirects). For local or LAN files use create_upload_url and curl -T.';
 const MCP_DOWNLOAD_FAILED_MSG  = 'Could not download source_url (connection failed or timed out)';
 
 // Non-public IPv4 ranges (RFC 6890 special-purpose blocks that are not globally
@@ -1354,7 +1364,7 @@ function mcpDownloadTarget(string $url): array {
 // files that pass the image check are kept.
 function mcpDownloadToFile(string $url, string $path, int $max): void {
     if (!function_exists('curl_init')) {
-        throw new McpToolError('source_url needs the PHP curl extension on this server. Send data_base64 instead, or use the raw upload endpoint.');
+        throw new McpToolError('source_url needs the PHP curl extension on this server. For a local file use create_upload_url and curl -T instead.');
     }
     $deadline = microtime(true) + MCP_DOWNLOAD_TIMEOUT;
     for ($hop = 0; ; $hop++) {
@@ -1461,10 +1471,19 @@ function mcpStoreUpload(string $tmp, string $kind, string $originalName = ''): a
     return $out;
 }
 
-// curl example for the raw upload endpoint (guide, instructions, tool texts).
+// curl example for the bearer-auth raw upload endpoint (guide, instructions,
+// tool texts). Agents should prefer create_upload_url (no token needed).
 function mcpRawUploadExample(string $kind = 'image', string $file = 'image.png'): string {
     return 'curl -H "Authorization: Bearer <TOKEN>" --data-binary @' . $file . ' "' . mcpBaseUrl() . "/mcp.php?upload=$kind&filename=$file\"";
 }
+
+// Command for a pre-signed upload URL from create_upload_url.
+function mcpTicketCurl(string $url): string {
+    return 'curl -sS -T <path-to-file> "' . $url . '"';
+}
+
+// Hint for data_base64 failures: hand-typed base64 is the usual cause.
+const MCP_BASE64_HINT = 'data_base64 must be the exact output of a program or tool (e.g. base64 -w0 file.png); never type or transcribe base64 by hand. With a shell and a local file use create_upload_url + curl -T instead (no token needed); for an image on the public internet use source_url.';
 
 // ════════════════════════════════════════════
 //  3. TOOL REGISTRY
@@ -1517,7 +1536,7 @@ function mcpSchemaObjects(array $schema): array {
 
 mcpTool('get_site', [
     'title'       => 'Get site overview',
-    'description' => 'Overview of this documentation site: name, URLs, spaces (top-level tabs) with page counts, total pages and images, and the raw upload endpoint. Call this first.',
+    'description' => 'Overview of this documentation site: name, URLs, spaces (top-level tabs) with page counts, total pages and images, and how to upload files. Call this first.',
     'inputSchema' => ['type' => 'object', 'properties' => [], 'additionalProperties' => false],
     'annotations' => ['readOnlyHint' => true, 'destructiveHint' => false, 'idempotentHint' => true, 'openWorldHint' => false],
 ], function (array $args): array {
@@ -1541,6 +1560,7 @@ mcpTool('get_site', [
         'pageCount'      => count($pages),
         'imagesCount'    => count(mcpImageFiles()),
         'uploadEndpoint' => "$base/mcp.php?upload=image&filename=<name>",
+        'uploadHelp'     => 'Local file + shell: create_upload_url, then curl -T (no token needed). Public image URL: upload_image source_url. data_base64 only from program output, never typed by hand.',
     ];
 });
 
@@ -1855,20 +1875,27 @@ quotes, < > ` and \ are stored percent-encoded (%20, %22, …).
 
 ## Images and covers
 
-1. Upload first. PNG, JPEG, GIF or WebP, max. 10 MB, no SVG. Three ways:
-   - upload_image {"source_url": "https://…/pic.png"}: the server downloads it
-     (public internet addresses only; localhost and LAN URLs are refused).
-   - upload_image {"data_base64": "iVBORw0…"}: small files only (base64 costs tokens).
-   - With shell access, send a local file as the raw request body (no base64;
-     <TOKEN> = the bearer token of this MCP connection):
+1. Upload first. PNG, JPEG, GIF or WebP, max. 10 MB, no SVG. Every image is checked
+   to be complete and decodable; corrupt or truncated data is refused. Pick one way:
+   a) Local file and a shell (recommended): create_upload_url {"kind": "image"}
+      returns a single-use upload_url (valid 15 min, no token needed). Run:
+        curl -sS -T ./screenshot.png "<upload_url>"
+      One URL = one upload attempt (a failed one too); create a new URL per file.
+   b) Image on the public internet: upload_image {"source_url": "https://…/pic.png"}:
+      the server downloads it (localhost and LAN URLs are refused).
+   c) upload_image {"data_base64": "iVBORw0…"} only when the bytes come from a program
+      or tool output (e.g. base64 -w0 file). Never type or transcribe base64 by hand.
+   The answer (plain JSON for curl) is {"ok": true, "url", "absoluteUrl", "filename",
+   "mime", "bytes", "width", "height", "block"}.
+   Scripts that hold the bearer token (<TOKEN>) may also send the file directly:
      {{RAW_IMAGE}}
-     The answer is plain JSON: {"ok": true, "url", "absoluteUrl", "filename", "mime", "bytes", "block"}.
 2. Use the returned root-relative url, e.g. "/images/img_6720….png", in an image block
    or cover (or insert the returned "block" as is). External http(s) image URLs work too.
    list_images shows existing images and which pages use them; delete_image removes
    one (refused while pages use it, unless force=true).
 
-Videos (mp4, webm, ogg) are uploaded only through the raw endpoint; use PUT for big files:
+Videos (mp4, webm, ogg; max. 2 GB) work the same way: create_upload_url {"kind": "video"},
+then curl -sS -T ./demo.mp4 "<upload_url>". With the bearer token instead:
      {{RAW_VIDEO}}
 The answer contains a ready block {"type": "video", "data": {"src", "filename", "mime"}}.
 To embed a hosted video use {"type": "video", "data": {"embedUrl": "https://www.youtube.com/watch?v=…"}};
@@ -2768,9 +2795,12 @@ mcpTool('update_settings', [
 
 mcpTool('upload_image', [
     'title'       => 'Upload image',
-    'description' => 'Store an image (PNG, JPEG, GIF or WebP; no SVG; max. 10 MB) from exactly one source: data_base64 (file content, a data: URL is fine) or source_url (http/https; the server downloads it, max. 3 redirects, 20 s; public internet addresses only, no localhost/LAN/link-local targets - send local or LAN files as data_base64 or via the raw endpoint). '
-                   . 'Returns url (root-relative, use it in image blocks and covers), absoluteUrl, filename and a ready image block. '
-                   . 'With shell access, upload local files without base64 via the raw endpoint: ' . mcpRawUploadExample(),
+    'description' => 'Store an image (PNG, JPEG, GIF or WebP; no SVG; max. 10 MB) from exactly one source. '
+                   . 'LOCAL FILE + SHELL: do not use this tool, call create_upload_url and run its curl -T command instead (no base64, no token needed). '
+                   . 'source_url: an image on the public internet (http/https; the server downloads it, max. 3 redirects, 20 s; no localhost/LAN/link-local targets). '
+                   . 'data_base64 (a data: URL is fine): only when the bytes come from a program or tool output; never type or transcribe base64 by hand, it ends up corrupt. '
+                   . 'Every image is checked to be complete and decodable; corrupt data is refused. '
+                   . 'Returns url (root-relative, use it in image blocks and covers), absoluteUrl, filename, width, height and a ready image block.',
     'inputSchema' => ['type' => 'object', 'properties' => [
         'data_base64' => ['type' => 'string', 'description' => 'Base64 file content (or data:image/…;base64,…)'],
         'source_url'  => ['type' => 'string', 'description' => 'Public http(s) URL to download the image from (no localhost / private network addresses)'],
@@ -2782,7 +2812,7 @@ mcpTool('upload_image', [
     $src = trim(mcpArg($args, 'source_url', 'string', ''));
     $name = mcpOriginalName(mcpArg($args, 'filename', 'string', ''));
     if (($b64 !== '') === ($src !== '')) {
-        throw new McpToolError('Pass exactly one source: data_base64 or source_url. For local files use the raw upload endpoint: ' . mcpRawUploadExample());
+        throw new McpToolError('Pass exactly one source: data_base64 or source_url. For a local file use create_upload_url and curl -T instead.');
     }
     $tmp = mcpTempUploadPath();
     try {
@@ -2794,7 +2824,7 @@ mcpTool('upload_image', [
             $b64 = preg_replace('/\s+/', '', $b64) ?? '';
             if (strlen($b64) > intdiv(MCP_IMAGE_MAX_BYTES + 2, 3) * 4) throw new McpToolError('File too large (max ' . mcpFormatBytes(MCP_IMAGE_MAX_BYTES) . ')', 413);
             $bin = base64_decode(strtr($b64, '-_', '+/'), true);
-            if ($bin === false || $bin === '') throw new McpToolError('data_base64 is not valid base64');
+            if ($bin === false || $bin === '') throw new McpToolError('data_base64 is not valid base64. ' . MCP_BASE64_HINT);
             if (strlen($bin) > MCP_IMAGE_MAX_BYTES) throw new McpToolError('File too large (max ' . mcpFormatBytes(MCP_IMAGE_MAX_BYTES) . ')', 413);
             if (file_put_contents($tmp, $bin) !== strlen($bin)) throw new McpToolError('Failed to store the upload', 500);
             unset($bin);
@@ -2803,10 +2833,46 @@ mcpTool('upload_image', [
             mcpDownloadToFile($src, $tmp, MCP_IMAGE_MAX_BYTES);
             if ($name === '') $name = mcpOriginalName(rawurldecode((string)parse_url($src, PHP_URL_PATH)));
         }
-        return mcpStoreUpload($tmp, 'image', $name);
+        try {
+            return mcpStoreUpload($tmp, 'image', $name);
+        } catch (McpToolError $e) {
+            $code = $e->getCode();
+            if ($b64 !== '' && ($code === 400 || $code === 415)) throw new McpToolError($e->getMessage() . '. ' . MCP_BASE64_HINT, $code);
+            throw $e;
+        }
     } finally {
         if (is_file($tmp)) @unlink($tmp);
     }
+});
+
+mcpTool('create_upload_url', [
+    'title'       => 'Create upload URL',
+    'description' => 'RECOMMENDED for local files when you have a shell: returns a pre-signed, single-use upload URL (valid ' . intdiv(MCP_UPLOAD_TICKET_TTL, 60) . ' min) that needs no Authorization header, so you never handle the bearer token. '
+                   . 'Run the returned curl command with the real file path (curl -sS -T ./file.png "<upload_url>"). Its JSON answer has url (root-relative, store this one), absoluteUrl, filename, mime, bytes, width/height (images) and a ready block to insert with edit_blocks or create_page. '
+                   . 'kind "image": PNG, JPEG, GIF or WebP, max. ' . mcpFormatBytes(MCP_IMAGE_MAX_BYTES) . ', no SVG, checked to be a complete image. kind "video": MP4, WebM or Ogg, max. ' . mcpFormatBytes(VIDEO_MAX_BYTES) . '. '
+                   . 'One URL = one upload attempt (a failed upload uses it up too): create a new URL for every file.',
+    'inputSchema' => ['type' => 'object', 'properties' => [
+        'kind'     => ['type' => 'string', 'enum' => ['image', 'video'], 'description' => 'What will be uploaded (default image)', 'default' => 'image'],
+        'filename' => ['type' => 'string', 'description' => 'Original file name (informational; the stored name is generated)'],
+    ], 'additionalProperties' => false],
+    'annotations' => ['readOnlyHint' => false, 'destructiveHint' => false, 'idempotentHint' => false, 'openWorldHint' => false],
+], function (array $args): array {
+    $kind = mcpArg($args, 'kind', 'string', 'image');
+    if ($kind !== 'image' && $kind !== 'video') throw new McpToolError('kind must be "image" or "video"');
+    $name = mcpOriginalName(mcpArg($args, 'filename', 'string', ''));
+    $token = mcpAuthToken();
+    if ($token === null || empty($token['id'])) throw new McpToolError('create_upload_url needs a request authenticated with a bearer token', 401);
+    $t = mcpUploadTicketCreate($kind, (string)$token['id']);
+    $url = mcpBaseUrl() . '/mcp.php?upload=' . $kind . '&ticket=' . $t['ticket'] . ($name !== '' ? '&filename=' . rawurlencode($name) : '');
+    return [
+        'upload_url' => $url,
+        'method'     => 'PUT',
+        'expires_at' => $t['expiresAt'],
+        'max_bytes'  => $kind === 'image' ? MCP_IMAGE_MAX_BYTES : VIDEO_MAX_BYTES,
+        'kind'       => $kind,
+        'curl'       => mcpTicketCurl($url),
+        'hint'       => 'Replace <path-to-file> with the local file. The response JSON contains url (store this one) and a ready "block" to insert with edit_blocks or create_page. Single use: call create_upload_url again for the next file or after a failed upload.',
+    ];
 });
 
 mcpTool('delete_image', [
@@ -2839,13 +2905,15 @@ mcpTool('delete_image', [
 
 // ════════════════════════════════════════════
 //  5. RAW UPLOAD HOOK
-//  mcp.php?upload=image|video&filename=… (POST/PUT, body = file, bearer auth).
-//  Called after authentication; must send a plain JSON response (no JSON-RPC).
+//  mcp.php?upload=image|video&filename=… (POST/PUT, body = file), either with
+//  bearer auth or with &ticket=wsu_… from create_upload_url (no header).
+//  Must send a plain JSON response (no JSON-RPC).
 //  The body is streamed into a temp file in TMP_UPLOADS_DIR with a byte
 //  counter, then checked and moved like upload_image / upload_video_chunk.
 // ════════════════════════════════════════════
 
-function mcpHandleRawUpload(string $kind): void {
+// Header-only checks (kind, multipart, Content-Length), before any body is read.
+function mcpRawUploadPrecheck(string $kind): void {
     if ($kind !== 'image' && $kind !== 'video') throw new McpToolError('upload must be "image" or "video"');
     $max = $kind === 'image' ? MCP_IMAGE_MAX_BYTES : VIDEO_MAX_BYTES;
     $type = strtolower((string)($_SERVER['CONTENT_TYPE'] ?? ''));
@@ -2859,19 +2927,62 @@ function mcpHandleRawUpload(string $kind): void {
     if ($len !== '' && ctype_digit($len) && (int)$len > $max) {
         throw new McpToolError('File too large (max ' . mcpFormatBytes($max) . ')', 413);
     }
+}
+
+// Stream the body into a temp file, validate and store it, send plain JSON.
+function mcpReceiveRawUpload(string $kind, string $emptyHint): void {
+    $max = $kind === 'image' ? MCP_IMAGE_MAX_BYTES : VIDEO_MAX_BYTES;
     if ($kind === 'video') @set_time_limit(0);
 
     $tmp = mcpTempUploadPath();
     try {
         $in = @fopen('php://input', 'rb');
         if (mcpStreamToFile($in, $tmp, $max) === 0) {
-            throw new McpToolError('Empty body: send the file as the request body, e.g. ' . mcpRawUploadExample($kind, $kind === 'image' ? 'image.png' : 'video.mp4'));
+            throw new McpToolError('Empty body: send the file as the request body, e.g. ' . $emptyHint);
         }
         $result = mcpStoreUpload($tmp, $kind, mcpOriginalName($_GET['filename'] ?? ''));
     } finally {
         if (is_file($tmp)) @unlink($tmp);
     }
     mcpSendJson(['ok' => true] + $result);
+}
+
+// Bearer-auth raw upload (mcp.php?upload=…&filename=…, Authorization header).
+function mcpHandleRawUpload(string $kind): void {
+    mcpRawUploadPrecheck($kind);
+    mcpReceiveRawUpload($kind, mcpRawUploadExample($kind, $kind === 'image' ? 'image.png' : 'video.mp4'));
+}
+
+// Pre-signed raw upload (mcp.php?upload=…&ticket=wsu_…, no Authorization).
+// Order: header checks, then the ticket is redeemed (consumed atomically),
+// then the body is read. Once the body stage is reached the ticket is gone,
+// whatever happens next, so a URL can never be used twice, not even by two
+// concurrent requests, and a leaked URL gives at most one attempt.
+// Unknown, expired, used and revoked tickets all get the same 401 answer.
+const MCP_TICKET_INVALID_MSG = 'Upload URL expired or already used - call create_upload_url again';
+
+function mcpHandleTicketUpload(string $kind, string $ticket): void {
+    $consumed = false;
+    try {
+        mcpRawUploadPrecheck($kind);
+        $status = mcpUploadTicketConsume($ticket, $kind);
+        if ($status === null) throw new McpToolError('Failed to lock the upload ticket store', 500);
+        if ($status === 'invalid') {
+            mcpSendJson(['ok' => false, 'error' => MCP_TICKET_INVALID_MSG], 401, ['WWW-Authenticate: Bearer realm="webstudio-docs"']);
+            return;
+        }
+        if ($status === 'kind') {
+            $other = $kind === 'image' ? 'video' : 'image';
+            throw new McpToolError("This upload URL was created for kind \"$other\", not \"$kind\": use it unchanged, or call create_upload_url with kind \"$kind\"");
+        }
+        $consumed = true;
+        mcpReceiveRawUpload($kind, mcpTicketCurl('<upload_url>') . ' (this URL is now used up; call create_upload_url again)');
+    } catch (McpToolError $e) {
+        $code = $e->getCode();
+        $msg = $e->getMessage();
+        if ($consumed && strpos($msg, 'used up') === false) $msg .= '. This upload URL is now used up; call create_upload_url again.';
+        mcpSendJson(['ok' => false, 'error' => $msg], $code >= 400 && $code < 600 ? $code : 400);
+    }
 }
 
 // ════════════════════════════════════════════
@@ -2901,12 +3012,13 @@ function mcpInstructions(): string {
         'To avoid overwriting edits made in the meantime, pass the updatedAt you read as if_updated_at when updating a page.',
         'Deleting pages moves them to the trash on the server (data/trash), it is not a hard delete.',
         'Spaces: create_space / update_space / delete_space (delete_space trashes all pages of the space). Site settings: get_settings / update_settings (no logo/favicon).',
-        'Images (PNG/JPEG/GIF/WebP, max 10 MB, no SVG): upload first, then put the returned url (or the returned block) into an image block or cover.',
-        'upload_image takes data_base64 or a source_url the server downloads. With shell access, upload local files directly instead of base64',
-        '(<TOKEN> = the bearer token you use for this server; the JSON answer has url, absoluteUrl and a ready block):',
-        '  ' . mcpRawUploadExample(),
-        'Videos (mp4/webm/ogg) only via the raw endpoint with upload=video; use PUT for big files: curl -T video.mp4 -H "Authorization: Bearer <TOKEN>" "' . $base . '/mcp.php?upload=video&filename=video.mp4".',
-        'Or use a video block with an embedUrl (YouTube/Vimeo links or another host\'s embed URL). delete_image refuses images that pages still use (force=true overrides).',
+        'Images (PNG/JPEG/GIF/WebP, max 10 MB, no SVG) and videos (MP4/WebM/Ogg, max 2 GB): upload first, then put the returned url (or the returned block) into an image/video block or cover. Pick the upload path like this:',
+        '  1. You have a shell and a local file (recommended): call create_upload_url {kind: "image"|"video"} and run the returned command, ' . mcpTicketCurl('<upload_url>') . '. No token needed; the URL works once and for 15 min.',
+        '  2. The image is on the public internet: upload_image {source_url}.',
+        '  3. upload_image {data_base64} only when the bytes come from a program or tool output. Never type or transcribe base64 by hand: it ends up corrupt and is refused.',
+        'Upload answers contain url, absoluteUrl, width/height (images) and a ready block. Corrupt or truncated images are refused.',
+        'Scripts that hold the bearer token can also POST/PUT the file directly: ' . mcpRawUploadExample() . ' (upload=video for videos).',
+        'Hosted videos: a video block with an embedUrl (YouTube/Vimeo links or another host\'s embed URL). delete_image refuses images that pages still use (force=true overrides).',
         'Pages are public at ' . $base . '/index.php?page=<id> unless the page or one of its parent pages is a draft; humans edit at ' . $base . '/editor.php.',
         'If a human has the editor open, ask them to reload it after your changes.',
     ]);
@@ -3019,6 +3131,7 @@ function mcpMain(): void {
 
     $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
     $upload = isset($_GET['upload']) ? (string)$_GET['upload'] : null;
+    $ticket = ($upload !== null && isset($_GET['ticket'])) ? (string)$_GET['ticket'] : null;
     $allowed = $upload !== null ? ['POST', 'PUT'] : ['POST'];
 
     // 1. Method
@@ -3042,13 +3155,21 @@ function mcpMain(): void {
         mcpSendJson(mcpRpcError(null, -32603, $e->getMessage()), 500);
         return;
     }
+    // 2a. Pre-signed upload: the single-use ticket is the credential (no
+    // bearer token; the token store is only read to see if its token was revoked)
+    if ($ticket !== null) {
+        mcpHandleTicketUpload($upload, $ticket);
+        return;
+    }
     $token = mcpBearerToken();
-    if ($token === '' || mcpTokenVerify($token) === null) {
+    $entry = $token === '' ? null : mcpTokenVerify($token);
+    if ($entry === null) {
         $hdr = ['WWW-Authenticate: Bearer realm="webstudio-docs"'];
         if ($upload !== null) mcpSendJson(['ok' => false, 'error' => 'Unauthorized'], 401, $hdr);
         else mcpSendJson(mcpRpcError(null, -32001, 'Unauthorized'), 401, $hdr);
         return;
     }
+    mcpAuthToken($entry);
 
     // 3. Raw upload branch
     if ($upload !== null) {

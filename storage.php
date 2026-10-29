@@ -569,3 +569,90 @@ function mcpTokenVerify(string $plain): ?array {
     }
     return $match;
 }
+
+// ── MCP upload tickets ──────────────────────
+// Pre-signed, single-use upload URLs (create_upload_url in mcp.php). A ticket
+// authenticates exactly one raw upload by itself, so a shell-capable agent can
+// run `curl -T file "<url>"` without ever seeing the bearer token. Only a
+// SHA-256 hash is stored, with kind, expiry and the id of the bearer token
+// that created it: revoking that token invalidates its open tickets. Writes
+// are serialized like mcpTokensWith() (own lock file); expired tickets and
+// tickets of revoked tokens are pruned on every locked access.
+defined('MCP_UPLOAD_TICKETS_FILE') || define('MCP_UPLOAD_TICKETS_FILE', DATA_DIR . '/mcp_upload_tickets.json');
+defined('MCP_UPLOAD_TICKET_TTL')   || define('MCP_UPLOAD_TICKET_TTL', 900);  // seconds
+defined('MCP_UPLOAD_TICKETS_MAX')  || define('MCP_UPLOAD_TICKETS_MAX', 50); // open tickets, all tokens together
+
+function mcpUploadTicketsWith(callable $fn) {
+    if (!is_dir(DATA_DIR)) @mkdir(DATA_DIR, 0755, true);
+    $fp = @fopen(MCP_UPLOAD_TICKETS_FILE . '.lock', 'c');
+    if (!$fp) return null;
+    if (!flock($fp, LOCK_EX)) { fclose($fp); return null; }
+    try {
+        $raw = jsonRead(MCP_UPLOAD_TICKETS_FILE, null);
+        $stored = (is_array($raw) && is_array($raw['tickets'] ?? null)) ? $raw['tickets'] : [];
+        $tokenIds = array_flip(array_map(function ($t) { return (string)$t['id']; }, mcpTokensRead()['tokens']));
+        $now = time();
+        $tickets = array_values(array_filter($stored, function ($t) use ($tokenIds, $now) {
+            return is_array($t) && !empty($t['hash']) && isset($tokenIds[(string)($t['tokenId'] ?? '')])
+                && ($exp = strtotime((string)($t['expiresAt'] ?? ''))) !== false && $exp > $now;
+        }));
+        $data = ['tickets' => $tickets];
+        $pruned = count($tickets) !== count($stored);
+        $result = $fn($data, $tokenIds);
+        if ($pruned || (is_array($result) && !empty($result['changed']))) {
+            $written = jsonWrite(MCP_UPLOAD_TICKETS_FILE, ['tickets' => array_values($data['tickets'])]);
+            if (is_array($result)) $result['written'] = $written;
+        }
+        return $result;
+    } finally {
+        flock($fp, LOCK_UN);
+        fclose($fp);
+    }
+}
+
+// New ticket for $kind ("image"|"video") on behalf of bearer token $tokenId.
+// Returns ['ticket' => 'wsu_…' (plain, shown once), 'expiresAt' => ISO date].
+function mcpUploadTicketCreate(string $kind, string $tokenId): array {
+    $ticket = 'wsu_' . rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+    $now = time();
+    $entry = [
+        'hash'      => hash('sha256', $ticket),
+        'kind'      => $kind,
+        'tokenId'   => $tokenId,
+        'createdAt' => date('c', $now),
+        'expiresAt' => date('c', $now + MCP_UPLOAD_TICKET_TTL),
+    ];
+    $res = mcpUploadTicketsWith(function (array &$data, array $tokenIds) use ($entry) {
+        if (!isset($tokenIds[$entry['tokenId']])) return ['changed' => false, 'error' => 'token'];
+        if (count($data['tickets']) >= MCP_UPLOAD_TICKETS_MAX) return ['changed' => false, 'error' => 'limit'];
+        $data['tickets'][] = $entry;
+        return ['changed' => true];
+    });
+    if ($res === null) err('Failed to lock the upload ticket store', 500);
+    if (($res['error'] ?? '') === 'token') err('The token of this connection is no longer valid', 401);
+    if (($res['error'] ?? '') === 'limit') err('Too many open upload URLs (max ' . MCP_UPLOAD_TICKETS_MAX . '). Use them or wait until they expire (' . intdiv(MCP_UPLOAD_TICKET_TTL, 60) . ' min).', 429);
+    if (empty($res['written'])) err('Failed to write the upload ticket store', 500);
+    return ['ticket' => $ticket, 'expiresAt' => $entry['expiresAt']];
+}
+
+// Redeem a plain ticket for an upload of $kind. Returns 'ok' (the ticket is
+// removed, i.e. consumed, in the same locked step, so two requests can never
+// both use it), 'kind' (valid ticket for the other kind; not consumed),
+// 'invalid' (unknown, expired, used, or its token was revoked) or null if
+// the store could not be locked.
+function mcpUploadTicketConsume(string $plain, string $kind): ?string {
+    if (!preg_match('/^wsu_[A-Za-z0-9_-]{43}$/', $plain)) return 'invalid';
+    $hash = hash('sha256', $plain);
+    $res = mcpUploadTicketsWith(function (array &$data) use ($hash, $kind) {
+        foreach ($data['tickets'] as $i => $t) {
+            if (!hash_equals((string)$t['hash'], $hash)) continue;
+            if ((string)($t['kind'] ?? '') !== $kind) return ['changed' => false, 'status' => 'kind'];
+            array_splice($data['tickets'], $i, 1);
+            return ['changed' => true, 'status' => 'ok'];
+        }
+        return ['changed' => false, 'status' => 'invalid'];
+    });
+    if (!is_array($res)) return null;
+    if ($res['status'] === 'ok' && empty($res['written'])) return null; // not removed → don't use it
+    return $res['status'];
+}

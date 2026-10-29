@@ -231,6 +231,7 @@ your-docs-site/
 │   ├── access_key.txt ← Optional simple access gate token
 │   ├── auth.json      ← Hashed password (bcrypt)
 │   ├── mcp_tokens.json ← MCP access tokens (SHA-256 hashes only)
+│   ├── mcp_upload_tickets.json ← Open single-use MCP upload URLs (hashes only)
 │   ├── settings.json  ← Site configuration
 │   ├── spaces.json    ← Space definitions
 │   ├── pages/         ← One JSON file per page
@@ -379,7 +380,7 @@ Once connected, the server tells the agent how to get started: read the structur
 | **Read** | `get_site`, `list_pages`, `get_page`, `search_pages`, `get_content_guide`, `list_images`, `get_settings` |
 | **Pages** | `create_page`, `update_page`, `edit_blocks`, `move_page`, `reorder_pages`, `set_page_id`, `delete_page`, `rename_section`, `set_section` |
 | **Spaces & settings** | `create_space`, `update_space`, `delete_space`, `update_settings` |
-| **Media** | `upload_image`, `delete_image` |
+| **Media** | `create_upload_url`, `upload_image`, `delete_image` |
 
 Notes:
 
@@ -391,19 +392,32 @@ Notes:
 
 ### Uploading images and videos
 
-`upload_image` accepts either `data_base64` or a `source_url` that the server downloads (http/https, public internet addresses only, max. 3 redirects, 20 s). Base64 costs the agent a lot of tokens, so agents with shell access should send local files straight to the raw upload endpoint instead:
+Images: PNG, JPEG, GIF, WebP — max. 10 MB, no SVG. Videos: MP4, WebM, Ogg — max. 2 GB. The server tells agents which path to use:
+
+1. **Local file and a shell (recommended)** — the agent calls `create_upload_url` (`kind: "image"` or `"video"`) and gets a pre-signed, single-use URL that is valid for 15 minutes and needs no `Authorization` header. The agent never has to read the bearer token from its MCP client config:
+
+   ```bash
+   curl -sS -T ./screenshot.png "https://your-domain.example/mcp.php?upload=image&ticket=wsu_…&filename=screenshot.png"
+   ```
+
+2. **Image on the public internet** — `upload_image` with `source_url`; the server downloads it (http/https, public internet addresses only, max. 3 redirects, 20 s).
+3. **`upload_image` with `data_base64`** — only when the bytes come from a program or tool output. Models that type or transcribe base64 by hand produce corrupt files.
+
+Every image upload (all three paths, the bearer endpoint below and the editor upload) is checked to be a complete, decodable image: `getimagesize()` must agree with the detected type, a structural check catches truncated files (missing PNG `IEND`, JPEG end-of-image marker, cut-off GIF blocks, short WebP RIFF), and GD decodes the whole image when it supports the type and the bitmap fits into memory (up to 50 megapixels). Corrupt data is refused with *"The image data is corrupt or truncated"* and nothing is stored.
+
+Scripts that hold the bearer token can also send files directly:
 
 ```bash
-# Images: PNG, JPEG, GIF, WebP — max. 10 MB, no SVG
+# Images
 curl -H "Authorization: Bearer wsd_your_token" --data-binary @screenshot.png \
   "https://your-domain.example/mcp.php?upload=image&filename=screenshot.png"
 
-# Videos: MP4, WebM, Ogg — use PUT (-T) for large files
+# Videos — use PUT (-T) for large files
 curl -T demo.mp4 -H "Authorization: Bearer wsd_your_token" \
   "https://your-domain.example/mcp.php?upload=video&filename=demo.mp4"
 ```
 
-The endpoint takes the file itself as the request body (`POST` or `PUT`, not a multipart form) and answers with plain JSON: the root-relative `url` to store, an `absoluteUrl`, and a ready-to-use `block` for an image or video block. `curl -T` sends a `PUT`, which avoids PHP `post_max_size` warnings for big videos. Videos can also be embedded with a video block: YouTube and Vimeo links are converted to embed URLs, other hosts work with their embed/player URL.
+Both endpoints take the file itself as the request body (`POST` or `PUT`, not a multipart form) and answer with plain JSON: the root-relative `url` to store, an `absoluteUrl`, `width`/`height` for images, and a ready-to-use `block` for an image or video block. `curl -T` sends a `PUT`, which avoids PHP `post_max_size` warnings for big videos. Videos can also be embedded with a video block: YouTube and Vimeo links are converted to embed URLs, other hosts work with their embed/player URL.
 
 ### Security
 
@@ -411,8 +425,9 @@ The endpoint takes the file itself as the request body (`POST` or `PUT`, not a m
 - **Revoke** unused or leaked tokens in Settings → AI agents (MCP). Revoked or unknown tokens get `401 Unauthorized`.
 - **Only a SHA-256 hash is stored** in `data/mcp_tokens.json` (protected like the rest of `data/`). The plain token cannot be recovered — create a new one if it gets lost.
 - **Everything an agent writes is sanitized on the server**: inline HTML is reduced to a whitelist of tags and attributes, links are limited to safe schemes, URLs are percent-encoded so they cannot break out of HTML attributes, video embeds only take http(s) URLs (shown in an iframe, as in the editor), and icons and cover values are validated. A prompt-injected agent cannot plant scripts in your public docs or in the editor.
-- **`source_url` downloads only reach the public internet.** The server resolves the host itself and refuses loopback, private LAN, link-local (including cloud metadata such as `169.254.169.254`), CGNAT, multicast and other reserved addresses, in any IP notation and on every redirect hop. The connection is pinned to the checked address, so DNS rebinding cannot slip past the check, and network errors are reported generically, so the tool cannot be used to probe internal hosts or ports. To upload a file from your own machine or LAN, send `data_base64` or use the raw upload endpoint.
-- The bearer token replaces the optional access gate for `mcp.php`; agents do not need the access cookie.
+- **`source_url` downloads only reach the public internet.** The server resolves the host itself and refuses loopback, private LAN, link-local (including cloud metadata such as `169.254.169.254`), CGNAT, multicast and other reserved addresses, in any IP notation and on every redirect hop. The connection is pinned to the checked address, so DNS rebinding cannot slip past the check, and network errors are reported generically, so the tool cannot be used to probe internal hosts or ports. To upload a file from your own machine or LAN, use `create_upload_url` or the raw upload endpoint.
+- **Upload URLs from `create_upload_url` are single-use.** The URL itself is the credential for exactly one upload: it expires after 15 minutes, is used up by the first upload attempt that gets past the header checks (also a failed one, so it can never be replayed or used by two requests at once), allows nothing but that one image or video upload, and stops working when the token that created it is revoked. Only a SHA-256 hash is stored in `data/mcp_upload_tickets.json`; at most 50 can be open at once. Because the ticket is a query parameter, it shows up in web server access logs. That is acceptable for these reasons: a logged URL is normally already used or expired, and even an unused one grants no admin rights and no read access — at most one upload into `images/` or `videos/`.
+- The bearer token replaces the optional access gate for `mcp.php`; agents do not need the access cookie. Ticket uploads do not use it either.
 - **Drafts stay private** — `draft: true` hides the page and all its subpages from the public (sidebar, direct URL, API, link previews). Logged-in editors still see them.
 
 ### Known limitations
