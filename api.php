@@ -196,6 +196,24 @@ function requireAuth() {
     if (!$authed) err('Unauthorized', 401);
 }
 
+function requirePost() {
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+        header('Allow: POST');
+        err('Method not allowed', 405);
+    }
+}
+
+// Absolute URL of mcp.php, shown in the editor's token settings. Lives here
+// (not in storage.php) because it relies on docsIsHttpsRequest() from
+// access_guard.php, which mcp.php does not load.
+function mcpEndpointUrl() {
+    $scheme = docsIsHttpsRequest() ? 'https' : 'http';
+    $host   = $_SERVER['HTTP_HOST'] ?? ($_SERVER['SERVER_NAME'] ?? 'localhost');
+    $dir    = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/api.php'));
+    $dir    = $dir === '.' ? '' : rtrim($dir, '/');
+    return $scheme . '://' . $host . $dir . '/mcp.php';
+}
+
 ensureDirs();
 ensureProtectedDirectoryIndex(TRASH_DIR);
 ensureProtectedDirectoryIndex(PAGES_TRASH_DIR);
@@ -481,6 +499,28 @@ case 'upload_video_chunk':
 
     $baseUrl = rtrim(dirname($_SERVER['PHP_SELF']), '/');
     ok(['done' => true, 'url' => $baseUrl . '/videos/' . $name, 'filename' => $name, 'mime' => $mime]);
+
+// ── MCP TOKENS — list / create / revoke bearer tokens for mcp.php ──
+case 'mcp_tokens':
+    requireAuth();
+    ok(['tokens' => mcpTokenPublicList(), 'endpoint' => mcpEndpointUrl()]);
+
+case 'mcp_token_create':
+    requireAuth();
+    requirePost();
+    $body = json_decode(file_get_contents('php://input'), true);
+    $name = is_array($body) && is_string($body['name'] ?? null) ? $body['name'] : '';
+    $created = mcpTokenCreate($name);
+    ok(['token' => $created['token'], 'entry' => $created['entry'], 'endpoint' => mcpEndpointUrl()]);
+
+case 'mcp_token_revoke':
+    requireAuth();
+    requirePost();
+    $body = json_decode(file_get_contents('php://input'), true);
+    $id = is_array($body) && is_string($body['id'] ?? null) ? $body['id'] : '';
+    if (!preg_match('/^tok_[a-f0-9]{12}$/', $id)) err('Invalid token id');
+    if (!mcpTokenRevoke($id)) err('Token not found', 404);
+    ok();
 
 default:
     err('Unknown action');

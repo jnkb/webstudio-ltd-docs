@@ -267,3 +267,137 @@ function renameStoredPage($oldId, $newId, array $meta = []): array {
     }
     return $page;
 }
+
+// ── MCP access tokens ───────────────────────
+// Bearer tokens for mcp.php. Only a SHA-256 hash of each token is stored
+// (tokens carry 256 bits of randomness, so a slow password hash is not needed).
+// All writes go through mcpTokensWith(), which holds an exclusive flock on a
+// sidecar lock file, so lastUsedAt updates, creates and revokes never
+// overwrite each other.
+defined('MCP_TOKENS_FILE') || define('MCP_TOKENS_FILE', DATA_DIR . '/mcp_tokens.json');
+defined('MCP_TOKENS_MAX')  || define('MCP_TOKENS_MAX', 20);
+// Only persist lastUsedAt when the stored value is older than this (seconds).
+defined('MCP_TOKEN_TOUCH_INTERVAL') || define('MCP_TOKEN_TOUCH_INTERVAL', 300);
+
+function mcpTokensRead(): array {
+    $data = jsonRead(MCP_TOKENS_FILE, null);
+    $tokens = (is_array($data) && is_array($data['tokens'] ?? null)) ? $data['tokens'] : [];
+    return ['tokens' => array_values(array_filter($tokens, function ($t) {
+        return is_array($t) && !empty($t['id']) && !empty($t['hash']);
+    }))];
+}
+
+function mcpTokensWrite(array $data): bool {
+    $tokens = is_array($data['tokens'] ?? null) ? array_values($data['tokens']) : [];
+    return jsonWrite(MCP_TOKENS_FILE, ['tokens' => $tokens]);
+}
+
+// Run $fn(array &$data) under an exclusive lock and persist $data afterwards
+// if $fn returns ['changed' => true, ...]. Returns $fn's result (or null if the
+// lock could not be taken). jsonWrite() replaces the file via rename(), so the
+// lock lives on a separate file whose inode never changes.
+function mcpTokensWith(callable $fn) {
+    if (!is_dir(DATA_DIR)) @mkdir(DATA_DIR, 0755, true);
+    $fp = @fopen(MCP_TOKENS_FILE . '.lock', 'c');
+    if (!$fp) return null;
+    if (!flock($fp, LOCK_EX)) { fclose($fp); return null; }
+    try {
+        $data = mcpTokensRead();
+        $result = $fn($data);
+        if (is_array($result) && !empty($result['changed'])) {
+            $result['written'] = mcpTokensWrite($data);
+        }
+        return $result;
+    } finally {
+        flock($fp, LOCK_UN);
+        fclose($fp);
+    }
+}
+
+function mcpTokenPublicEntry(array $entry): array {
+    return [
+        'id'         => (string)($entry['id'] ?? ''),
+        'name'       => (string)($entry['name'] ?? ''),
+        'hint'       => (string)($entry['hint'] ?? ''),
+        'createdAt'  => $entry['createdAt'] ?? null,
+        'lastUsedAt' => $entry['lastUsedAt'] ?? null,
+    ];
+}
+
+function mcpTokenPublicList(): array {
+    return array_map('mcpTokenPublicEntry', mcpTokensRead()['tokens']);
+}
+
+function mcpTokenCreate(string $name): array {
+    $name = trim(preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $name) ?? '');
+    $name = function_exists('mb_substr') ? mb_substr($name, 0, 60, 'UTF-8') : substr($name, 0, 60);
+    $name = trim($name);
+    if ($name === '') $name = 'AI agent';
+
+    $token = 'wsd_' . rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+    $entry = [
+        'id'         => 'tok_' . bin2hex(random_bytes(6)),
+        'name'       => $name,
+        'hash'       => hash('sha256', $token),
+        'hint'       => substr($token, 0, 8) . '…' . substr($token, -4),
+        'createdAt'  => date('c'),
+        'lastUsedAt' => null,
+    ];
+
+    $res = mcpTokensWith(function (array &$data) use ($entry) {
+        if (count($data['tokens']) >= MCP_TOKENS_MAX) return ['changed' => false, 'error' => 'limit'];
+        $data['tokens'][] = $entry;
+        return ['changed' => true];
+    });
+    if ($res === null) err('Failed to lock the token store', 500);
+    if (($res['error'] ?? '') === 'limit') err('Token limit reached (max ' . MCP_TOKENS_MAX . '). Revoke an unused token first.', 409);
+    if (empty($res['written'])) err('Failed to write the token store', 500);
+
+    return ['token' => $token, 'entry' => mcpTokenPublicEntry($entry)];
+}
+
+function mcpTokenRevoke(string $id): bool {
+    if ($id === '') return false;
+    $res = mcpTokensWith(function (array &$data) use ($id) {
+        $before = count($data['tokens']);
+        $data['tokens'] = array_values(array_filter($data['tokens'], function ($t) use ($id) {
+            return !hash_equals((string)$t['id'], $id);
+        }));
+        return ['changed' => count($data['tokens']) !== $before];
+    });
+    return is_array($res) && !empty($res['changed']) && !empty($res['written']);
+}
+
+// Returns the stored entry (with hash) for a valid plaintext token, else null.
+// Bumps lastUsedAt at most every MCP_TOKEN_TOUCH_INTERVAL seconds, so a busy
+// agent doesn't rewrite the file on every request.
+function mcpTokenVerify(string $plain): ?array {
+    $plain = trim($plain);
+    if (strncmp($plain, 'wsd_', 4) !== 0 || strlen($plain) > 200) return null;
+    $hash = hash('sha256', $plain);
+
+    $match = null;
+    foreach (mcpTokensRead()['tokens'] as $t) {
+        if (hash_equals((string)$t['hash'], $hash)) { $match = $t; break; }
+    }
+    if ($match === null) return null;
+
+    $last = !empty($match['lastUsedAt']) ? strtotime((string)$match['lastUsedAt']) : false;
+    if ($last === false || time() - $last >= MCP_TOKEN_TOUCH_INTERVAL) {
+        $now = date('c');
+        $touched = mcpTokensWith(function (array &$data) use ($hash, $now) {
+            foreach ($data['tokens'] as &$t) {
+                if (hash_equals((string)$t['hash'], $hash)) {
+                    $t['lastUsedAt'] = $now;
+                    return ['changed' => true, 'entry' => $t];
+                }
+            }
+            unset($t);
+            return ['changed' => false, 'revoked' => true];
+        });
+        // Revoked between the unlocked read and the lock: reject.
+        if (is_array($touched) && !empty($touched['revoked'])) return null;
+        if (is_array($touched) && isset($touched['entry'])) $match = $touched['entry'];
+    }
+    return $match;
+}
