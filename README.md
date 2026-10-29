@@ -391,7 +391,7 @@ Notes:
 
 ### Uploading images and videos
 
-`upload_image` accepts either `data_base64` or a `source_url` that the server downloads (http/https, max. 3 redirects, 20 s). Base64 costs the agent a lot of tokens, so agents with shell access should send local files straight to the raw upload endpoint instead:
+`upload_image` accepts either `data_base64` or a `source_url` that the server downloads (http/https, public internet addresses only, max. 3 redirects, 20 s). Base64 costs the agent a lot of tokens, so agents with shell access should send local files straight to the raw upload endpoint instead:
 
 ```bash
 # Images: PNG, JPEG, GIF, WebP — max. 10 MB, no SVG
@@ -411,6 +411,7 @@ The endpoint takes the file itself as the request body (`POST` or `PUT`, not a m
 - **Revoke** unused or leaked tokens in Settings → AI agents (MCP). Revoked or unknown tokens get `401 Unauthorized`.
 - **Only a SHA-256 hash is stored** in `data/mcp_tokens.json` (protected like the rest of `data/`). The plain token cannot be recovered — create a new one if it gets lost.
 - **Everything an agent writes is sanitized on the server**: inline HTML is reduced to a whitelist of tags and attributes, links are limited to safe schemes, URLs are percent-encoded so they cannot break out of HTML attributes, video embeds only take http(s) URLs (shown in an iframe, as in the editor), and icons and cover values are validated. A prompt-injected agent cannot plant scripts in your public docs or in the editor.
+- **`source_url` downloads only reach the public internet.** The server resolves the host itself and refuses loopback, private LAN, link-local (including cloud metadata such as `169.254.169.254`), CGNAT, multicast and other reserved addresses, in any IP notation and on every redirect hop. The connection is pinned to the checked address, so DNS rebinding cannot slip past the check, and network errors are reported generically, so the tool cannot be used to probe internal hosts or ports. To upload a file from your own machine or LAN, send `data_base64` or use the raw upload endpoint.
 - The bearer token replaces the optional access gate for `mcp.php`; agents do not need the access cookie.
 - **Drafts stay private** — `draft: true` hides the page and all its subpages from the public (sidebar, direct URL, API, link previews). Logged-in editors still see them.
 

@@ -1215,12 +1215,141 @@ function mcpStreamToFile($in, string $path, int $max): int {
     return $n;
 }
 
+const MCP_DOWNLOAD_BLOCKED_MSG = 'source_url must point to a public internet address (also after redirects). For local or LAN files send data_base64 or use the raw upload endpoint.';
+const MCP_DOWNLOAD_FAILED_MSG  = 'Could not download source_url (connection failed or timed out)';
+
+// Non-public IPv4 ranges (RFC 6890 special-purpose blocks that are not globally
+// reachable, plus multicast / reserved / broadcast).
+const MCP_BLOCKED_V4 = [
+    '0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16',
+    '172.16.0.0/12', '192.0.0.0/24', '192.0.2.0/24', '192.88.99.0/24', '192.168.0.0/16',
+    '198.18.0.0/15', '198.51.100.0/24', '203.0.113.0/24', '224.0.0.0/4', '240.0.0.0/4',
+];
+// Blocks inside 2000::/3 (global unicast) that are still not public.
+const MCP_BLOCKED_V6 = ['2001::/23', '2001:db8::/32', '3fff::/20'];
+
+function mcpIpInCidr(string $bin, string $cidr): bool {
+    [$net, $len] = explode('/', $cidr);
+    $nb = inet_pton($net);
+    if ($nb === false || strlen($nb) !== strlen($bin)) return false;
+    $len = (int)$len;
+    $bytes = intdiv($len, 8);
+    if (substr($bin, 0, $bytes) !== substr($nb, 0, $bytes)) return false;
+    $bits = $len % 8;
+    if ($bits === 0) return true;
+    $mask = (0xFF << (8 - $bits)) & 0xFF;
+    return (ord($bin[$bytes]) & $mask) === (ord($nb[$bytes]) & $mask);
+}
+
+// True only for globally routable unicast addresses. IPv6 addresses that embed
+// an IPv4 address (IPv4-mapped ::ffff:0:0/96, NAT64 64:ff9b::/96, 6to4
+// 2002::/16) are judged by that IPv4 address.
+function mcpIsPublicIp(string $ip): bool {
+    $bin = @inet_pton($ip);
+    if ($bin === false) return false;
+    if (strlen($bin) === 4) {
+        foreach (MCP_BLOCKED_V4 as $c) if (mcpIpInCidr($bin, $c)) return false;
+        return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false;
+    }
+    if (strlen($bin) !== 16) return false;
+    if (mcpIpInCidr($bin, '::ffff:0:0/96') || mcpIpInCidr($bin, '64:ff9b::/96')) {
+        return mcpIsPublicIp((string)inet_ntop(substr($bin, 12, 4)));
+    }
+    if (mcpIpInCidr($bin, '2002::/16')) return mcpIsPublicIp((string)inet_ntop(substr($bin, 2, 4)));
+    if (!mcpIpInCidr($bin, '2000::/3')) return false; // ::, ::1, fc00::/7, fe80::/10, ff00::/8, …
+    foreach (MCP_BLOCKED_V6 as $c) if (mcpIpInCidr($bin, $c)) return false;
+    return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false;
+}
+
+// Read a host as an IPv4 literal the way curl / inet_aton / WHATWG URLs do:
+// 1–4 dot-separated parts, each decimal, octal (leading 0) or hex (0x), the
+// last part filling the remaining bytes (2130706433, 0x7f.1, 127.1, 0177.0.0.1).
+// Returns the dotted quad, '' for a malformed numeric host, null for a name.
+function mcpParseIpv4Literal(string $host): ?string {
+    $parts = explode('.', $host);
+    if (count($parts) > 1 && end($parts) === '') array_pop($parts);
+    if (!preg_match('/^(0x[0-9a-f]*|[0-9]+)$/i', (string)end($parts))) return null;
+    if (count($parts) > 4) return '';
+    $nums = [];
+    foreach ($parts as $p) {
+        if (preg_match('/^0x0*([0-9a-f]*)$/i', $p, $m)) {
+            if (strlen($m[1]) > 8) return '';
+            $nums[] = $m[1] === '' ? 0 : (int)hexdec($m[1]);
+        } elseif (preg_match('/^0+([0-7]*)$/', $p, $m)) {
+            if (strlen($m[1]) > 11) return '';
+            $nums[] = $m[1] === '' ? 0 : (int)octdec($m[1]);
+        } elseif (preg_match('/^[1-9][0-9]{0,9}$/', $p)) {
+            $nums[] = (int)$p;
+        } else {
+            return '';
+        }
+    }
+    $last = array_pop($nums);
+    foreach ($nums as $n) if ($n > 255) return '';
+    if ($last >= 256 ** (4 - count($nums))) return '';
+    $value = 0;
+    foreach ($nums as $i => $n) $value |= $n << (24 - 8 * $i);
+    return long2ip($value | $last);
+}
+
+// Check one download hop before it is fetched. Resolves the host (IPv4 and
+// IPv6) and refuses the URL if ANY address is not public, so a name that
+// points at loopback, the LAN or a cloud metadata service is never fetched.
+// Returns the address curl must connect to; the caller pins it with
+// CURLOPT_CONNECT_TO, so a DNS answer that changes between this check and the
+// connect (DNS rebinding) has no effect.
+function mcpDownloadTarget(string $url): array {
+    $p = parse_url($url);
+    $scheme = strtolower((string)($p['scheme'] ?? ''));
+    $host = (string)($p['host'] ?? '');
+    if (!in_array($scheme, ['http', 'https'], true) || $host === '' || preg_match('/[\s\\\\]/', $url)) {
+        throw new McpToolError('source_url must be an http:// or https:// URL');
+    }
+    $port = isset($p['port']) ? (int)$p['port'] : ($scheme === 'https' ? 443 : 80);
+    if ($port < 1 || $port > 65535) throw new McpToolError('source_url must be an http:// or https:// URL');
+    $host = strtolower(rtrim($host, '.'));
+    if ($host === '') throw new McpToolError(MCP_DOWNLOAD_BLOCKED_MSG, 403);
+
+    if ($host[0] === '[') { // IPv6 literal (a zone id such as %25eth0 fails inet_pton)
+        $ip = substr($host, 1, -1);
+        if (substr($host, -1) !== ']' || filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) === false) {
+            throw new McpToolError(MCP_DOWNLOAD_BLOCKED_MSG, 403);
+        }
+        $ips = [$ip];
+    } elseif (($v4 = mcpParseIpv4Literal($host)) !== null) {
+        if ($v4 === '') throw new McpToolError(MCP_DOWNLOAD_BLOCKED_MSG, 403);
+        $ips = [$v4];
+    } else {
+        if ($host === 'localhost' || substr($host, -10) === '.localhost') throw new McpToolError(MCP_DOWNLOAD_BLOCKED_MSG, 403);
+        if (preg_match('/[^\x21-\x7e]/', $host)) {
+            $ascii = function_exists('idn_to_ascii') ? @idn_to_ascii($host, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46) : false;
+            if (!is_string($ascii) || $ascii === '') throw new McpToolError(MCP_DOWNLOAD_FAILED_MSG, 502);
+            $host = strtolower($ascii);
+        }
+        if (!preg_match('/^[a-z0-9_-]+(\.[a-z0-9_-]+)*$/', $host)) throw new McpToolError(MCP_DOWNLOAD_FAILED_MSG, 502);
+        $ips = @gethostbynamel($host) ?: []; // system resolver incl. /etc/hosts
+        foreach ((@dns_get_record($host, DNS_AAAA) ?: []) as $r) {
+            if (($r['type'] ?? '') === 'AAAA' && !empty($r['ipv6'])) $ips[] = $r['ipv6'];
+        }
+        if (!$ips) throw new McpToolError(MCP_DOWNLOAD_FAILED_MSG, 502);
+    }
+    foreach ($ips as $ip) {
+        if (!mcpIsPublicIp($ip)) throw new McpToolError(MCP_DOWNLOAD_BLOCKED_MSG, 403);
+    }
+    $ip = $ips[0];
+    foreach ($ips as $cand) if (strpos($cand, ':') === false) { $ip = $cand; break; } // prefer IPv4
+    return ['ip' => $ip, 'port' => $port];
+}
+
 // Download an http(s) URL into $path with curl. Redirects are followed by
-// hand so every hop is checked: http/https only, at most 3 redirects, 20 s in
-// total, more than $max bytes aborts (Content-Length and a byte counter).
-// Private / loopback hosts are NOT blocked (a token already has admin rights,
-// and self-hosted setups fetch from the LAN); response bodies never end up in
-// error messages, and only files that pass the image check are kept.
+// hand so every hop is checked: http/https only, public addresses only (see
+// mcpDownloadTarget), at most 3 redirects, 20 s in total, more than $max bytes
+// aborts (Content-Length and a byte counter). Each hop connects to exactly the
+// address that was checked (CURLOPT_CONNECT_TO with an empty host matches
+// whatever host curl parses from the URL) and never through a proxy.
+// Network errors are reported generically so the tool cannot be used as a
+// port scanner; response bodies never end up in error messages, and only
+// files that pass the image check are kept.
 function mcpDownloadToFile(string $url, string $path, int $max): void {
     if (!function_exists('curl_init')) {
         throw new McpToolError('source_url needs the PHP curl extension on this server. Send data_base64 instead, or use the raw upload endpoint.');
@@ -1229,6 +1358,10 @@ function mcpDownloadToFile(string $url, string $path, int $max): void {
     for ($hop = 0; ; $hop++) {
         $remaining = $deadline - microtime(true);
         if ($remaining <= 0) throw new McpToolError('Download timed out (' . MCP_DOWNLOAD_TIMEOUT . ' s)', 504);
+        $hopTarget = mcpDownloadTarget($url);
+        $pin = strpos($hopTarget['ip'], ':') !== false ? '[' . $hopTarget['ip'] . ']' : $hopTarget['ip'];
+        $remaining = $deadline - microtime(true); // DNS may have taken a while
+        if ($remaining <= 0) throw new McpToolError('Download timed out (' . MCP_DOWNLOAD_TIMEOUT . ' s)', 504);
         $fh = @fopen($path, 'wb');
         if (!$fh) throw new McpToolError('Failed to store the download', 500);
         $n = 0; $tooLarge = false; $location = '';
@@ -1236,6 +1369,8 @@ function mcpDownloadToFile(string $url, string $path, int $max): void {
         $opts = [
             CURLOPT_URL            => $url,
             CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_CONNECT_TO     => ['::' . $pin . ':' . $hopTarget['port']],
+            CURLOPT_PROXY          => '', // no proxy (not even from env vars): connect to the pinned address
             CURLOPT_CONNECTTIMEOUT_MS => (int)min(10000, $remaining * 1000),
             CURLOPT_TIMEOUT_MS     => max(1, (int)($remaining * 1000)),
             CURLOPT_NOSIGNAL       => true,
@@ -1253,10 +1388,13 @@ function mcpDownloadToFile(string $url, string $path, int $max): void {
         ];
         if (defined('CURLOPT_PROTOCOLS_STR')) $opts[CURLOPT_PROTOCOLS_STR] = 'http,https';
         else $opts[CURLOPT_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS;
-        curl_setopt_array($ch, $opts);
+        if (!curl_setopt_array($ch, $opts)) { // e.g. a libcurl without CONNECT_TO: never fetch unpinned
+            unset($ch); fclose($fh);
+            throw new McpToolError(MCP_DOWNLOAD_FAILED_MSG, 502);
+        }
         curl_exec($ch);
         $errno  = curl_errno($ch);
-        $error  = curl_error($ch);
+        $connectedIp = (string)curl_getinfo($ch, CURLINFO_PRIMARY_IP);
         $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         $next   = (string)curl_getinfo($ch, CURLINFO_REDIRECT_URL);
         unset($ch); // curl_close() is a no-op since PHP 8 (deprecated in 8.5)
@@ -1265,8 +1403,8 @@ function mcpDownloadToFile(string $url, string $path, int $max): void {
         if ($tooLarge || $errno === 63 /* CURLE_FILESIZE_EXCEEDED */) {
             throw new McpToolError('File too large (max ' . mcpFormatBytes($max) . ')', 413);
         }
-        if ($errno === 28 /* CURLE_OPERATION_TIMEDOUT */) throw new McpToolError('Download timed out (' . MCP_DOWNLOAD_TIMEOUT . ' s)', 504);
-        if ($errno !== 0) throw new McpToolError('Download failed: ' . mcpSanitizeText($error, 200), 502);
+        if ($errno !== 0) throw new McpToolError(MCP_DOWNLOAD_FAILED_MSG, 502);
+        if (@inet_pton($connectedIp) !== @inet_pton($hopTarget['ip'])) throw new McpToolError(MCP_DOWNLOAD_BLOCKED_MSG, 403); // pin did not hold
         if (in_array($status, [301, 302, 303, 307, 308], true)) {
             $target = $next !== '' ? $next : $location;
             if ($target === '') throw new McpToolError("Download failed: HTTP $status without a Location header", 502);
@@ -1278,7 +1416,7 @@ function mcpDownloadToFile(string $url, string $path, int $max): void {
             $url = $target;
             continue;
         }
-        if ($status < 200 || $status >= 300) throw new McpToolError("Download failed: HTTP $status", 502);
+        if ($status < 200 || $status >= 300) throw new McpToolError("Download failed (HTTP $status)", 502);
         return;
     }
 }
@@ -1713,7 +1851,8 @@ quotes, < > ` and \ are stored percent-encoded (%20, %22, …).
 ## Images and covers
 
 1. Upload first. PNG, JPEG, GIF or WebP, max. 10 MB, no SVG. Three ways:
-   - upload_image {"source_url": "https://…/pic.png"}: the server downloads it.
+   - upload_image {"source_url": "https://…/pic.png"}: the server downloads it
+     (public internet addresses only; localhost and LAN URLs are refused).
    - upload_image {"data_base64": "iVBORw0…"}: small files only (base64 costs tokens).
    - With shell access, send a local file as the raw request body (no base64;
      <TOKEN> = the bearer token of this MCP connection):
@@ -2624,12 +2763,12 @@ mcpTool('update_settings', [
 
 mcpTool('upload_image', [
     'title'       => 'Upload image',
-    'description' => 'Store an image (PNG, JPEG, GIF or WebP; no SVG; max. 10 MB) from exactly one source: data_base64 (file content, a data: URL is fine) or source_url (http/https; the server downloads it, max. 3 redirects, 20 s). '
+    'description' => 'Store an image (PNG, JPEG, GIF or WebP; no SVG; max. 10 MB) from exactly one source: data_base64 (file content, a data: URL is fine) or source_url (http/https; the server downloads it, max. 3 redirects, 20 s; public internet addresses only, no localhost/LAN/link-local targets - send local or LAN files as data_base64 or via the raw endpoint). '
                    . 'Returns url (root-relative, use it in image blocks and covers), absoluteUrl, filename and a ready image block. '
                    . 'With shell access, upload local files without base64 via the raw endpoint: ' . mcpRawUploadExample(),
     'inputSchema' => ['type' => 'object', 'properties' => [
         'data_base64' => ['type' => 'string', 'description' => 'Base64 file content (or data:image/…;base64,…)'],
-        'source_url'  => ['type' => 'string', 'description' => 'http(s) URL to download the image from'],
+        'source_url'  => ['type' => 'string', 'description' => 'Public http(s) URL to download the image from (no localhost / private network addresses)'],
         'filename'    => ['type' => 'string', 'description' => 'Original file name (informational; the stored name is generated)'],
     ], 'additionalProperties' => false],
     'annotations' => ['readOnlyHint' => false, 'destructiveHint' => false, 'idempotentHint' => false, 'openWorldHint' => true],
