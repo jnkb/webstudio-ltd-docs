@@ -1,31 +1,51 @@
 ## 🔄 Changes from the original version
 
 This repository is a customized fork of the original Webstudio Docs release.
-The main changes are:
+The main changes, most significant first:
 
-- **Optional simple access gate** — hides the site behind a basic token link and browser cookie
-- **Viewer-only iframe embedding** — `index.php` can be embedded in an iframe, while `editor.php` stays protected against framing.
+### Major features
+
+- **AI agent access via MCP** — `mcp.php` lets AI agents such as Claude Code read, search, write, and organize the docs with revocable bearer tokens created in Settings; everything they write is sanitized on the server. See [MCP.md](MCP.md).
 - **Split public viewer and admin editor** — `index.php` is now the read-only public frontend, while `editor.php` contains the authenticated editing UI.
-- **Shared frontend assets** — styles and translations were moved into `assets/app.css` and `assets/i18n.js` so both entry points stay in sync.
+- **Markdown import** — paste Markdown into a paragraph to turn it into blocks, or drop `.md` files (with their images) into the editor to create pages.
+- **Markdown download** — readers and editors can download the current page as a `.md` file from a button next to Share.
+- **Local video uploads** — upload MP4, WebM, or Ogg files alongside YouTube/Vimeo embeds; uploads are chunked so very large files bypass PHP's upload limits, and they play in a standard HTML5 player in both the editor and the public viewer.
+
+### Access, navigation & editing
+
+- **Optional simple access gate** — hides the site behind a basic token link and browser cookie.
+- **Editable page IDs and internal link picker** — page URLs can be customized and internal links can be selected from a searchable page list.
+- **Search across all block types** — full-text search now also finds text in tables, callouts, timelines, cards, collapsibles, and other blocks.
 - **German language support** — the interface now includes built-in German translations with centralized language configuration.
+- **Viewer-only iframe embedding** — `index.php` can be embedded in an iframe, while `editor.php` stays protected against framing.
+- **Clipboard image paste support** — pasted screenshots and copied images can be uploaded directly into the editor.
+
+### Security & data safety
+
+- **Safer page deletion** — removed pages and related rating files are archived into `data/trash/pages` instead of being deleted outright.
+- **Drafts hide their subpages** — a draft page and its whole subtree are hidden from the public viewer, API, and link previews; logged-in editors still see them.
+- **Image integrity checks** — corrupt or truncated images are refused on every upload path.
+- **Built-in password change flow** — admins can change the password from settings without rerunning setup.
+
+### Settings & comfort
+
+- **Manual space reordering** — spaces can be moved left or right directly in the editor.
 - **Broader translation coverage** — UI texts that were still hardcoded are now routed through the shared i18n layer.
 - **Optional Google Translate button** — the translate button is now optional and can be disabled in settings.
 - **Saved page feedback** — page helpfulness feedback is now persisted through the API.
+- **HTML-capable footer content** — footer areas now support full HTML content instead of plain text only.
 - **Configurable share section visibility** — the share block in the page sidebar can be shown or hidden from settings.
 - **Optional single-space navigation mode** — the top space tabs can be hidden automatically when only one space exists.
 - **Role-aware shortcuts** — admin-only keyboard shortcuts are hidden or blocked for non-admin users.
-- **Built-in password change flow** — admins can change the password from settings without rerunning setup.
-- **HTML-capable footer content** — footer areas now support full HTML content instead of plain text only.
-- **Manual space reordering** — spaces can be moved left or right directly in the editor.
-- **Safer page deletion** — removed pages and related rating files are archived into `data/trash/pages` instead of being deleted outright.
-- **Editable page IDs and internal link picker** — page URLs can be customized and internal links can be selected from a searchable page list.
-- **Clipboard image paste support** — pasted screenshots and copied images can be uploaded directly into the editor.
-- **Local video uploads** — upload MP4, WebM, or Ogg files alongside YouTube/Vimeo embeds; uploads are chunked so very large files bypass PHP's upload limits, and they play in a standard HTML5 player in both the editor and the public viewer.
+- **Platform-specific shortcut labels** — macOS shows ⌘/⇧, Windows and Linux show Ctrl/Shift.
 - **Selectable divider styles** — delimiter blocks can render as stars, a solid line, a dashed line, or dots.
 - **Preserved table line breaks** — multi-line table cells now keep their line breaks during save and render.
+
+### Under the hood & fixes
+
+- **Shared frontend assets** — styles, translations, and shared JavaScript helpers live in `assets/app.css`, `assets/i18n.js`, and `assets/shared.js` so both entry points stay in sync.
 - **PHP 8.5 compatibility updates** — the fork includes fixes for current PHP deprecations and edge cases.
 - **Header slash menu fix** — the header slash menu behavior was corrected in the customized frontend.
-- **AI agent access via MCP** — `mcp.php` lets AI agents such as Claude Code read, search, write, and organize the docs with revocable bearer tokens created in Settings; everything they write is sanitized on the server.
 
 ---
 
@@ -122,17 +142,19 @@ No `npm install`. No environment variables. No database migrations. No Docker. J
 - **Quotes, delimiters, inline code, markers** — including selectable divider styles
 - **Internal page links** — searchable page picker for linking cards and rich text to other docs pages
 - **Editable page IDs** — control clean URLs manually when you need stable or custom slugs
+- **Markdown import** — paste Markdown into a paragraph, or drop `.md` files to create pages (headings, lists, tables, code, GitHub alerts, `<details>`, images)
+- **Markdown download** — export any page as `.md`, in a format the importer reads back
 - **Drag & drop** block reordering with visual drop indicator
 - **Undo / Redo** with full history (Ctrl+Z / Ctrl+Shift+Z)
 
 ### Navigation & Search
 - **Spaces** — separate documentation sections (like GitBook spaces), with manual left/right reordering in the editor
 - **Tree structure** — pages, subpages, sections, and nested drag & drop reorder
-- **Full-text search** — Ctrl+K searches titles, subtitles, and page content
+- **Full-text search** — Ctrl+K / ⌘K searches titles, subtitles, and the text of every block type
 - **Table of contents** — auto-generated from headings with scroll spy
 - **Per-page feedback** — readers can mark a page as helpful, neutral, or not helpful, and ratings are saved
 - **Optional single-space mode** — hide the top space switcher when your docs only use one space
-- **Keyboard navigation** — ← → for prev/next page, ? for all shortcuts
+- **Keyboard navigation** — ← → for prev/next page, ? for all shortcuts, with labels that match your platform
 - **Breadcrumbs** and **previous/next** page links
 
 ### Looks Professional
@@ -153,16 +175,19 @@ No `npm install`. No environment variables. No database migrations. No Docker. J
 ### Security
 - **Setup wizard** — first-run password setup with strength validation
 - **Bcrypt hashing** — passwords stored securely, never in plain text
-- **Rate limiting** — 10 attempts per 5 minutes, brute force protection
+- **Rate limiting** — 10 failed login attempts per IP per 5 minutes, stored server-side
 - **Change password flow** — update the admin password later from Settings without rerunning setup
 - **`.htaccess` protection** — blocks direct access to data files
 - **Optional simple access gate** — hides the site behind a basic token link and browser cookie
 - **Install-scoped cookies and sessions** — multiple docs instances on the same domain do not collide with each other
 - **Viewer-only iframe support** — `index.php` may be embedded; `editor.php` remains frame-blocked
+- **Verified uploads** — corrupt or truncated images are refused before they are stored
+- **Revocable MCP tokens** — AI agents get their own bearer tokens (stored as hashes only), and everything they write is sanitized
 - **No database** — no SQL injection possible. Ever.
 
 ### Developer-Friendly
 - **Easy to extend** — it's just HTML, CSS, JS and PHP. No framework, no abstraction layers
+- **AI agent access (MCP)** — let Claude Code or other MCP clients read and write your docs, see [MCP.md](MCP.md)
 - **i18n ready** — English, German, and Slovak built-in, with broader translation coverage across the UI
 - **Safer file-based cleanup** — deleted pages and related rating files are moved into `data/trash/pages`
 - **PHP 7.4+ friendly** — updated to stay compatible with current PHP 8.5 behavior
@@ -193,7 +218,7 @@ Webstudio Docs is actively developed. Here's what we're working on:
 
 ### Coming to Open Source (Free)
 - [ ] Multi-user support with roles (admin / editor / viewer)
-- [ ] Markdown import & export
+- [x] Markdown import & export
 - [ ] More languages (French, Spanish, Czech — PRs welcome!)
 - [ ] Page versioning / history
 - [ ] Keyboard shortcuts in sidebar navigation
@@ -223,22 +248,29 @@ your-docs-site/
 ├── storage.php    ← Shared storage helpers for api.php + mcp.php (not web-accessible)
 ├── auth.php       ← Authentication (setup wizard, login, sessions)
 ├── .htaccess      ← Security (blocks /data/ from direct access)
+├── MCP.md         ← Setup and reference for AI agent access
 ├── assets/
 │   ├── app.css    ← Shared styles for viewer + editor
-│   └── i18n.js    ← Shared translations, icons, language config
+│   ├── i18n.js    ← Shared translations, icons, language config
+│   ├── shared.js  ← Shared JS helpers for viewer + editor
+│   ├── markdown-import.js ← Markdown → blocks (editor only)
+│   └── markdown-export.js ← Page → Markdown download
 ├── data/
 │   ├── index.php      ← Directory protection helper
 │   ├── access_key.txt ← Optional simple access gate token
 │   ├── auth.json      ← Hashed password (bcrypt)
+│   ├── ratelimit.json ← Failed login attempts per IP
 │   ├── mcp_tokens.json ← MCP access tokens (SHA-256 hashes only)
 │   ├── mcp_upload_tickets.json ← Open single-use MCP upload URLs (hashes only)
 │   ├── settings.json  ← Site configuration
 │   ├── spaces.json    ← Space definitions
 │   ├── pages/         ← One JSON file per page
+│   ├── tmp_uploads/   ← Temporary parts of chunked video uploads
 │   └── trash/
 │       └── pages/     ← Archived deleted pages and rating files
-└── images/
-    └── og/            ← Auto-generated social sharing images
+├── images/            ← Uploaded images
+│   └── og/            ← Auto-generated social sharing images
+└── videos/            ← Uploaded videos
 ```
 
 In this fork, `index.php` is the public reader frontend and iframe entry point. Open `editor.php` when you want to log in, edit content, manage spaces, or change settings. When the optional access gate is enabled, `access_guard.php` enforces the unlock cookie for both flows.
@@ -260,7 +292,10 @@ In this fork, `index.php` is the public reader frontend and iframe entry point. 
 ```nginx
 location /data/ { deny all; return 403; }
 location ~ \.json$ { deny all; return 403; }
+location ~ /storage\.php$ { deny all; return 403; }
 ```
+
+`storage.php` also refuses direct calls on its own. Nginx passes the `Authorization` header for `mcp.php` to PHP-FPM by default.
 
 ### Optional Simple Access Gate
 
@@ -325,55 +360,22 @@ If the optional access gate is enabled, unlock the viewer once with `?token=...`
 
 It speaks MCP over **Streamable HTTP** (plain `POST` with JSON responses, no SSE, no sessions), so it runs on any PHP hosting without a background process. Agents authenticate with a bearer token.
 
-### 1. Create an access token
+**👉 Full guide: [MCP.md](MCP.md)** — client setup, all 23 tools, content format, uploads, security, troubleshooting.
 
-1. Open `editor.php` and log in.
-2. Go to **Settings → AI agents (MCP)**. The section shows the endpoint URL (`https://your-domain.example/mcp.php`) with a copy button.
-3. Click **Create token**, give it a name you will recognise later (e.g. "Claude Code on my laptop").
-4. Copy the token (`wsd_…`) right away — **it is shown only once**. The dialog also shows ready-to-paste setup snippets for Claude Code and for other MCP clients.
+### Quick start
 
-The same section lists all tokens with a short hint, creation date, and last use, and lets you **revoke** each one. A revoked token stops working immediately. Up to 20 tokens can exist at the same time.
+1. Open `editor.php`, go to **Settings → AI agents (MCP)**, and click **Create token**. Copy the token (`wsd_…`) right away — it is shown only once.
+2. Connect your agent, e.g. Claude Code:
 
-### 2. Connect an agent
+   ```bash
+   claude mcp add --transport http docs https://your-domain.example/mcp.php \
+     --header "Authorization: Bearer wsd_your_token"
+   ```
 
-**Claude Code:**
+   The settings dialog also shows snippets for other MCP clients. For Claude Desktop, see [MCP.md](MCP.md#claude-desktop).
+3. Ask the agent something like *"Give me an overview of the docs"* or *"Create a page Installation in the Getting Started section"*.
 
-```bash
-claude mcp add --transport http docs https://your-domain.example/mcp.php \
-  --header "Authorization: Bearer wsd_your_token"
-```
-
-**Other MCP clients** that support HTTP servers with custom headers (JSON config):
-
-```json
-{
-  "mcpServers": {
-    "docs": {
-      "type": "http",
-      "url": "https://your-domain.example/mcp.php",
-      "headers": { "Authorization": "Bearer wsd_your_token" }
-    }
-  }
-}
-```
-
-**Claude Desktop** — its custom connectors cannot send a static `Authorization` header, so bridge the server through [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) in `claude_desktop_config.json` (needs Node.js):
-
-```json
-{
-  "mcpServers": {
-    "docs": {
-      "command": "npx",
-      "args": ["mcp-remote", "https://your-domain.example/mcp.php", "--header", "Authorization:${DOCS_AUTH}"],
-      "env": { "DOCS_AUTH": "Bearer wsd_your_token" }
-    }
-  }
-}
-```
-
-Once connected, the server tells the agent how to get started: read the structure with `get_site` and `list_pages`, and read `get_content_guide` before writing content.
-
-### Tools
+### What agents can do
 
 | Group | Tools |
 |---|---|
@@ -382,64 +384,13 @@ Once connected, the server tells the agent how to get started: read the structur
 | **Spaces & settings** | `create_space`, `update_space`, `delete_space`, `update_settings` |
 | **Media** | `create_upload_url`, `upload_image`, `delete_image` |
 
-Notes:
+### Good to know
 
-- Page content is written and returned as **EditorJS blocks** (the same format the editor stores), not Markdown. `get_content_guide` documents all 14 block types, their fields, and the allowed inline HTML.
-- `update_page` and `edit_blocks` accept `if_updated_at` (the `updatedAt` value the agent read). If the page changed in the meantime, the write is rejected instead of overwriting someone else's edits.
-- `delete_page` and `delete_space` move pages into `data/trash/pages` — nothing is hard-deleted. A page with subpages is only deleted with `include_children: true`; `delete_space` needs `confirm: true` and refuses to delete the last space.
-- `set_page_id` changes a page URL and rewrites internal links and card links to it in all pages. External links to the old `?page=` URL stop working.
-- `update_settings` cannot change the logo or favicon. `delete_image` refuses images that pages still use (unless `force: true`) and deletes the file permanently.
-
-### Uploading images and videos
-
-Images: PNG, JPEG, GIF, WebP — max. 10 MB, no SVG. Videos: MP4, WebM, Ogg — max. 2 GB. The server tells agents which path to use:
-
-1. **Local file and a shell (recommended)** — the agent calls `create_upload_url` (`kind: "image"` or `"video"`) and gets a pre-signed, single-use URL that is valid for 15 minutes and needs no `Authorization` header. The agent never has to read the bearer token from its MCP client config:
-
-   ```bash
-   curl -sS -T ./screenshot.png "https://your-domain.example/mcp.php?upload=image&ticket=wsu_…&filename=screenshot.png"
-   ```
-
-2. **Image on the public internet** — `upload_image` with `source_url`; the server downloads it (http/https, public internet addresses only, max. 3 redirects, 20 s).
-3. **`upload_image` with `data_base64`** — only when the bytes come from a program or tool output. Models that type or transcribe base64 by hand produce corrupt files.
-
-Every image upload (all three paths, the bearer endpoint below and the editor upload) is checked to be a complete, decodable image: `getimagesize()` must agree with the detected type, a structural check catches truncated files (missing PNG `IEND`, JPEG end-of-image marker, cut-off GIF blocks, short WebP RIFF), and GD decodes the whole image when it supports the type and the bitmap fits into memory (up to 50 megapixels). Corrupt data is refused with *"The image data is corrupt or truncated"* and nothing is stored.
-
-Scripts that hold the bearer token can also send files directly:
-
-```bash
-# Images
-curl -H "Authorization: Bearer wsd_your_token" --data-binary @screenshot.png \
-  "https://your-domain.example/mcp.php?upload=image&filename=screenshot.png"
-
-# Videos — use PUT (-T) for large files
-curl -T demo.mp4 -H "Authorization: Bearer wsd_your_token" \
-  "https://your-domain.example/mcp.php?upload=video&filename=demo.mp4"
-```
-
-Both endpoints take the file itself as the request body (`POST` or `PUT`, not a multipart form) and answer with plain JSON: the root-relative `url` to store, an `absoluteUrl`, `width`/`height` for images, and a ready-to-use `block` for an image or video block. `curl -T` sends a `PUT`, which avoids PHP `post_max_size` warnings for big videos. Videos can also be embedded with a video block: YouTube and Vimeo links are converted to embed URLs, other hosts work with their embed/player URL.
-
-### Security
-
-- **A token has full admin rights for content.** Anyone who holds it can create, change, and delete pages, spaces, settings, and images. Treat it like your admin password, and give each agent or machine its own token so you can revoke it on its own.
-- **Revoke** unused or leaked tokens in Settings → AI agents (MCP). Revoked or unknown tokens get `401 Unauthorized`.
-- **Only a SHA-256 hash is stored** in `data/mcp_tokens.json` (protected like the rest of `data/`). The plain token cannot be recovered — create a new one if it gets lost.
-- **Everything an agent writes is sanitized on the server**: inline HTML is reduced to a whitelist of tags and attributes, links are limited to safe schemes, URLs are percent-encoded so they cannot break out of HTML attributes, video embeds only take http(s) URLs (shown in an iframe, as in the editor), and icons and cover values are validated. A prompt-injected agent cannot plant scripts in your public docs or in the editor.
-- **`source_url` downloads only reach the public internet.** The server resolves the host itself and refuses loopback, private LAN, link-local (including cloud metadata such as `169.254.169.254`), CGNAT, multicast and other reserved addresses, in any IP notation and on every redirect hop. The connection is pinned to the checked address, so DNS rebinding cannot slip past the check, and network errors are reported generically, so the tool cannot be used to probe internal hosts or ports. To upload a file from your own machine or LAN, use `create_upload_url` or the raw upload endpoint.
-- **Upload URLs from `create_upload_url` are single-use.** The URL itself is the credential for exactly one upload: it expires after 15 minutes, is used up by the first upload attempt that gets past the header checks (also a failed one, so it can never be replayed or used by two requests at once), allows nothing but that one image or video upload, and stops working when the token that created it is revoked. Only a SHA-256 hash is stored in `data/mcp_upload_tickets.json`; at most 50 can be open at once. Because the ticket is a query parameter, it shows up in web server access logs. That is acceptable for these reasons: a logged URL is normally already used or expired, and even an unused one grants no admin rights and no read access — at most one upload into `images/` or `videos/`.
-- The bearer token replaces the optional access gate for `mcp.php`; agents do not need the access cookie. Ticket uploads do not use it either.
-- **Drafts stay private** — `draft: true` hides the page and all its subpages from the public (sidebar, direct URL, API, link previews). Logged-in editors still see them.
-
-### Known limitations
-
-- **Concurrent editing** — the editor writes `spaces.json` and `settings.json` as a whole on every save, and a page that is open in the editor is saved from its in-browser copy. If an editor tab is open while an agent works, that tab can overwrite the agent's changes. **Reload the editor after an agent has made changes.** Agents protect their own writes with `if_updated_at`; there is no real locking.
-- **No Markdown via MCP** — agents read and write EditorJS blocks. The Markdown import/export in the editor runs in the browser only.
-- **No token scopes and no OAuth** — every token has full rights. Clients that try OAuth discovery after a `401` fail with their own error message; in that case, check the token.
-- `footerTailHtml` and `footerText` written through MCP are limited to the same whitelist the footer uses in the browser: `a`, `b`, `strong`, `i`, `em`, `u`, `span`, `small`, `code`, `br`, with `title` on all of them and `href`/`target`/`rel` on links. Other tags are stored as visible text, and links are limited to safe schemes.
-### Server requirements
-
-- **Authorization header** — on PHP-FPM / CGI hosts Apache drops the `Authorization` header unless it is passed through. The bundled `.htaccess` already does this (`RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]`); keep it when you customise the file. Nginx passes the header to PHP-FPM by default.
-- **PHP curl extension** — only needed for `upload_image` with `source_url`. Everything else, including the raw upload endpoint, works without it.
+- **A token has full admin rights for content.** Give each agent its own token and revoke unused ones in Settings. Only a SHA-256 hash is stored.
+- **Everything an agent writes is sanitized on the server**, so a prompt-injected agent cannot plant scripts in your docs.
+- **Nothing is hard-deleted** — deleted pages and spaces go to `data/trash/pages` (uploaded images are the exception).
+- **Reload the editor after an agent has made changes.** An editor tab that stays open can overwrite them.
+- **Hosting:** on PHP-FPM / CGI hosts, keep the `Authorization` passthrough rule in the bundled `.htaccess`. The PHP curl extension is only needed for image downloads via `source_url`.
 
 ---
 
