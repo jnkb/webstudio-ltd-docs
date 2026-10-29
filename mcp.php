@@ -344,19 +344,16 @@ function mcpSanitizeCover($cover): ?array {
 
 // ── Block normalizer ───────────────────────
 
-// Turn YouTube/Vimeo watch links into embed URLs (like VideoTool._toEmbed).
-// Only the embed forms the editor itself produces are accepted (YouTube
-// /embed/<id>, also on youtube-nocookie.com, and player.vimeo.com/video/<id>,
-// each with an optional query string); anything else → '' (rejected).
+// Turn YouTube/Vimeo watch links into embed URLs (like VideoTool._toEmbed);
+// any other http(s) URL is an embed/player URL of another host and is kept
+// as mcpSanitizeUrl() returns it (quotes, <>, whitespace percent-encoded).
+// Other schemes (javascript:, data:, mailto:, …) and relative URLs → ''.
 function mcpVideoEmbedUrl(string $url): string {
     $url = mcpSanitizeUrl($url, false);
     if ($url === '' || !preg_match('#^https?://#i', $url)) return '';
-    if (preg_match('#(?:youtube\.com/watch\?(?:.*&)?v=|youtu\.be/)([\w-]+)#', $url, $m)) return 'https://www.youtube.com/embed/' . $m[1];
-    if (preg_match('#vimeo\.com/(\d+)#', $url, $m) && stripos($url, 'player.vimeo.com') === false) return 'https://player.vimeo.com/video/' . $m[1];
-    if (preg_match('#^https?://((?:www\.)?youtube(?:-nocookie)?\.com/embed/[\w-]+|player\.vimeo\.com/video/\d+)/?(\?[^\#]*)?(\#.*)?$#i', $url, $m)) {
-        return 'https://' . $m[1] . ($m[2] ?? '') . ($m[3] ?? '');
-    }
-    return '';
+    if (preg_match('#^https?://(?:(?:www\.|m\.)?youtube\.com/watch\?(?:[^\#]*&)?v=|youtu\.be/)([\w-]+)#i', $url, $m)) return 'https://www.youtube.com/embed/' . $m[1];
+    if (preg_match('#^https?://(?:www\.)?vimeo\.com/(\d+)#i', $url, $m)) return 'https://player.vimeo.com/video/' . $m[1];
+    return $url;
 }
 
 function mcpNormalizeListItems($items, string $path, int $depth = 0): array {
@@ -487,7 +484,7 @@ function mcpNormalizeBlockData(string $type, array $d, string $path): array {
             $embed = $str($d['embedUrl'] ?? '');
             $src   = $str($d['src'] ?? '');
             $orig  = $str($d['url'] ?? '');
-            if ($embed === '' && $src === '' && $orig !== '') $embed = $orig; // a plain YouTube/Vimeo link
+            if ($embed === '' && $src === '' && $orig !== '') $embed = $orig; // e.g. a plain YouTube/Vimeo link
             $out = ['url' => '', 'embedUrl' => '', 'src' => '', 'filename' => '', 'mime' => ''];
             // A video block the editor saved before anything was chosen: all fields "".
             if ($embed === '' && $src === '' && array_key_exists('src', $d) && array_key_exists('embedUrl', $d)) return $out;
@@ -502,7 +499,7 @@ function mcpNormalizeBlockData(string $type, array $d, string $path): array {
                 return $out;
             }
             $out['embedUrl'] = mcpVideoEmbedUrl($embed);
-            if ($out['embedUrl'] === '') throw new McpToolError("$path.data needs embedUrl or src (uploaded video). embedUrl must be a YouTube or Vimeo link: youtube.com/watch?v=…, youtu.be/…, vimeo.com/<id>, or an embed URL https://www.youtube.com/embed/<id>, https://www.youtube-nocookie.com/embed/<id> or https://player.vimeo.com/video/<id>; other hosts are not allowed");
+            if ($out['embedUrl'] === '') throw new McpToolError("$path.data needs embedUrl or src (uploaded video). embedUrl must be an http(s) URL: a YouTube or Vimeo link (youtube.com/watch?v=…, youtu.be/…, vimeo.com/<id> are converted to embed URLs) or the embed/player URL of another host, e.g. https://player.example.com/embed/1");
             // url = what the user typed (the editor keeps it as is, e.g. "youtu.be/…"
             // without scheme); only embedUrl is rendered.
             $out['url'] = $orig !== '' ? mcpSanitizeUrl($orig, true) : $out['embedUrl'];
@@ -1695,7 +1692,7 @@ block you keep back unchanged, as get_page returned it.
 | warning | callout: {type: "info"/"tip"/"warning"/"danger" (default info), title, message} | inline HTML |
 | timeline | {numbered: bool, items: [{date, title, desc}]} | plain text; "\n" in desc = line break |
 | collapse | {title, body, open: bool} - expandable section | plain text; "\n" in body = line break |
-| video | {embedUrl} YouTube/Vimeo only (watch links like youtube.com/watch?v=…, youtu.be/…, vimeo.com/<id> are converted; embed URLs youtube.com/embed/…, youtube-nocookie.com/embed/…, player.vimeo.com/video/… are kept; other hosts are rejected), or {src, filename, mime} for an uploaded video (/videos/vid_….mp4, mime video/mp4, video/webm or video/ogg) | - |
+| video | {embedUrl} an http(s) URL shown in an iframe (YouTube/Vimeo watch links like youtube.com/watch?v=…, youtu.be/…, vimeo.com/<id> are converted to embed URLs; other URLs, e.g. the embed/player URL of another host, are kept), or {src, filename, mime} for an uploaded video (/videos/vid_….mp4, mime video/mp4, video/webm or video/ogg) | - |
 | cards | {cols: 2/3/4 (default 3), cards: [{icon, title, desc, link}]} - icon: Font Awesome name like "fa-rocket"; link: a page id or an https:// URL (optional) | plain text |
 
 "Plain text" fields: tags are removed, write text only.
@@ -1730,8 +1727,8 @@ quotes, < > ` and \ are stored percent-encoded (%20, %22, …).
 Videos (mp4, webm, ogg) are uploaded only through the raw endpoint; use PUT for big files:
      {{RAW_VIDEO}}
 The answer contains a ready block {"type": "video", "data": {"src", "filename", "mime"}}.
-For YouTube/Vimeo use {"type": "video", "data": {"embedUrl": "https://www.youtube.com/watch?v=…"}}.
-Other video hosts cannot be embedded.
+To embed a hosted video use {"type": "video", "data": {"embedUrl": "https://www.youtube.com/watch?v=…"}};
+YouTube/Vimeo links are converted, for other hosts pass their embed/player URL.
 
 Page cover (create_page / update_page "cover"; null removes it):
 - {"type": "color", "value": "#7c3aed"} or {"type": "color", "value": "linear-gradient(135deg,#f97316,#7c3aed)"}
@@ -2766,7 +2763,7 @@ function mcpInstructions(): string {
         '(<TOKEN> = the bearer token you use for this server; the JSON answer has url, absoluteUrl and a ready block):',
         '  ' . mcpRawUploadExample(),
         'Videos (mp4/webm/ogg) only via the raw endpoint with upload=video; use PUT for big files: curl -T video.mp4 -H "Authorization: Bearer <TOKEN>" "' . $base . '/mcp.php?upload=video&filename=video.mp4".',
-        'Or use a video block with a YouTube/Vimeo embedUrl. delete_image refuses images that pages still use (force=true overrides).',
+        'Or use a video block with an embedUrl (YouTube/Vimeo links or another host\'s embed URL). delete_image refuses images that pages still use (force=true overrides).',
         'Pages are public at ' . $base . '/index.php?page=<id> unless draft is true; humans edit at ' . $base . '/editor.php.',
         'If a human has the editor open, ask them to reload it after your changes.',
     ]);

@@ -403,14 +403,14 @@ curl -T demo.mp4 -H "Authorization: Bearer wsd_your_token" \
   "https://your-domain.example/mcp.php?upload=video&filename=demo.mp4"
 ```
 
-The endpoint takes the file itself as the request body (`POST` or `PUT`, not a multipart form) and answers with plain JSON: the root-relative `url` to store, an `absoluteUrl`, and a ready-to-use `block` for an image or video block. `curl -T` sends a `PUT`, which avoids PHP `post_max_size` warnings for big videos. Videos can also be embedded from YouTube or Vimeo with a video block.
+The endpoint takes the file itself as the request body (`POST` or `PUT`, not a multipart form) and answers with plain JSON: the root-relative `url` to store, an `absoluteUrl`, and a ready-to-use `block` for an image or video block. `curl -T` sends a `PUT`, which avoids PHP `post_max_size` warnings for big videos. Videos can also be embedded with a video block: YouTube and Vimeo links are converted to embed URLs, other hosts work with their embed/player URL.
 
 ### Security
 
 - **A token has full admin rights for content.** Anyone who holds it can create, change, and delete pages, spaces, settings, and images. Treat it like your admin password, and give each agent or machine its own token so you can revoke it on its own.
 - **Revoke** unused or leaked tokens in Settings → AI agents (MCP). Revoked or unknown tokens get `401 Unauthorized`.
 - **Only a SHA-256 hash is stored** in `data/mcp_tokens.json` (protected like the rest of `data/`). The plain token cannot be recovered — create a new one if it gets lost.
-- **Everything an agent writes is sanitized on the server**: inline HTML is reduced to a whitelist of tags and attributes, links are limited to safe schemes, URLs are percent-encoded so they cannot break out of HTML attributes, video embeds are limited to YouTube and Vimeo, and icons and cover values are validated. A prompt-injected agent cannot plant scripts in your public docs or in the editor.
+- **Everything an agent writes is sanitized on the server**: inline HTML is reduced to a whitelist of tags and attributes, links are limited to safe schemes, URLs are percent-encoded so they cannot break out of HTML attributes, video embeds only take http(s) URLs (shown in an iframe, as in the editor), and icons and cover values are validated. A prompt-injected agent cannot plant scripts in your public docs or in the editor.
 - The bearer token replaces the optional access gate for `mcp.php`; agents do not need the access cookie.
 
 ### Known limitations
