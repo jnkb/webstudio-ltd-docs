@@ -294,6 +294,16 @@ function mcpSanitizeText($text, int $max = 0): string {
     return $text;
 }
 
+// Plain-text field inside block data (timeline, collapse, cards, image
+// caption, video filename). Same tag/control-char removal as mcpSanitizeText
+// (the editor's read-only mode puts some of these into innerHTML), but
+// lossless for what the editor stores: no trimming, no length cut, tabs kept.
+function mcpSanitizeBlockText($text): string {
+    if (!is_string($text)) $text = is_scalar($text) ? (string)$text : '';
+    $text = preg_replace('/<\/?[a-zA-Z!?][^>]*>?/', '', $text) ?? '';
+    return preg_replace('/[\x00-\x08\x0B-\x1F\x7F]/', '', str_replace("\r\n", "\n", $text)) ?? '';
+}
+
 // Font Awesome icon class (rendered unescaped into class="fa-solid …").
 // "house" → "fa-house"; anything not matching ^fa-[a-z0-9-]{1,40}$ → $fallback.
 function mcpSanitizeIcon(?string $icon, string $fallback = 'fa-file'): string {
@@ -432,12 +442,14 @@ function mcpNormalizeBlockData(string $type, array $d, string $path): array {
 
         case 'image':
             $url = mcpSanitizeUrl($str($d['url'] ?? ''), true);
-            if ($url === '' || stripos($url, 'mailto:') === 0) {
+            // An image block the editor saved before a file was chosen has url "".
+            $emptyEditorBlock = ($d['url'] ?? null) === '';
+            if (!$emptyEditorBlock && ($url === '' || stripos($url, 'mailto:') === 0)) {
                 throw new McpToolError("$path.data.url must be an http(s) URL or a path like /images/img_….png (upload with upload_image first)");
             }
             $out = [
-                'url'            => $url,
-                'caption'        => mcpSanitizeText($d['caption'] ?? '', 500),
+                'url'            => $emptyEditorBlock ? '' : $url,
+                'caption'        => mcpSanitizeBlockText($d['caption'] ?? ''),
                 'stretched'      => !empty($d['stretched']),
                 'withBorder'     => !empty($d['withBorder']),
                 'withBackground' => !empty($d['withBackground']),
@@ -457,17 +469,17 @@ function mcpNormalizeBlockData(string $type, array $d, string $path): array {
             foreach ($list($d['items'] ?? [], 'items') as $it) {
                 if (!is_array($it)) throw new McpToolError("$path.data.items entries must be {date, title, desc}");
                 $items[] = [
-                    'date'  => mcpSanitizeText($it['date'] ?? '', 100),
-                    'title' => mcpSanitizeText($it['title'] ?? '', 300),
-                    'desc'  => mcpSanitizeText($it['desc'] ?? '', 5000),
+                    'date'  => mcpSanitizeBlockText($it['date'] ?? ''),
+                    'title' => mcpSanitizeBlockText($it['title'] ?? ''),
+                    'desc'  => mcpSanitizeBlockText($it['desc'] ?? ''),
                 ];
             }
             return ['numbered' => !empty($d['numbered']), 'items' => $items];
 
         case 'collapse':
             return [
-                'title' => mcpSanitizeText($d['title'] ?? '', 300),
-                'body'  => mcpSanitizeText($d['body'] ?? '', 20000),
+                'title' => mcpSanitizeBlockText($d['title'] ?? ''),
+                'body'  => mcpSanitizeBlockText($d['body'] ?? ''),
                 'open'  => !empty($d['open']),
             ];
 
@@ -477,19 +489,23 @@ function mcpNormalizeBlockData(string $type, array $d, string $path): array {
             $orig  = $str($d['url'] ?? '');
             if ($embed === '' && $src === '' && $orig !== '') $embed = $orig; // a plain YouTube/Vimeo link
             $out = ['url' => '', 'embedUrl' => '', 'src' => '', 'filename' => '', 'mime' => ''];
+            // A video block the editor saved before anything was chosen: all fields "".
+            if ($embed === '' && $src === '' && array_key_exists('src', $d) && array_key_exists('embedUrl', $d)) return $out;
             if ($src !== '') {
                 $out['src'] = mcpSanitizeUrl($src, true);
                 if ($out['src'] === '' || stripos($out['src'], 'mailto:') === 0) {
                     throw new McpToolError("$path.data.src must be a path like /videos/vid_….mp4 or an http(s) URL");
                 }
-                $out['filename'] = mcpSanitizeText($d['filename'] ?? basename(parse_url($out['src'], PHP_URL_PATH) ?: ''), 200);
+                $out['filename'] = mcpSanitizeBlockText($d['filename'] ?? basename(parse_url($out['src'], PHP_URL_PATH) ?: ''));
                 $mime = $str($d['mime'] ?? '');
                 $out['mime'] = in_array($mime, ['video/mp4', 'video/webm', 'video/ogg'], true) ? $mime : '';
                 return $out;
             }
             $out['embedUrl'] = mcpVideoEmbedUrl($embed);
             if ($out['embedUrl'] === '') throw new McpToolError("$path.data needs embedUrl or src (uploaded video). embedUrl must be a YouTube or Vimeo link: youtube.com/watch?v=…, youtu.be/…, vimeo.com/<id>, or an embed URL https://www.youtube.com/embed/<id>, https://www.youtube-nocookie.com/embed/<id> or https://player.vimeo.com/video/<id>; other hosts are not allowed");
-            $out['url'] = $orig !== '' ? mcpSanitizeUrl($orig, false) : $out['embedUrl'];
+            // url = what the user typed (the editor keeps it as is, e.g. "youtu.be/…"
+            // without scheme); only embedUrl is rendered.
+            $out['url'] = $orig !== '' ? mcpSanitizeUrl($orig, true) : $out['embedUrl'];
             return $out;
 
         case 'cards':
@@ -499,10 +515,12 @@ function mcpNormalizeBlockData(string $type, array $d, string $path): array {
                 if (!is_array($card)) throw new McpToolError("$path.data.cards[$c] must be {icon, title, desc, link}");
                 $item = [
                     'icon'  => mcpSanitizeIcon($str($card['icon'] ?? ''), 'fa-star'),
-                    'title' => mcpSanitizeText($card['title'] ?? '', 200),
-                    'desc'  => mcpSanitizeText($card['desc'] ?? '', 1000),
+                    'title' => mcpSanitizeBlockText($card['title'] ?? ''),
+                    'desc'  => mcpSanitizeBlockText($card['desc'] ?? ''),
                 ];
                 $link = trim($str($card['link'] ?? ''));
+                // The editor stores link "" after "no link" was picked; keep it.
+                if ($link === '' && ($card['link'] ?? null) === '') $item['link'] = '';
                 if (preg_match('/^\??page=(.+)$/', $link, $m)) $link = rawurldecode($m[1]);
                 if ($link !== '') {
                     if (preg_match('#^https?://#i', $link)) {
@@ -1655,6 +1673,12 @@ fields are dropped; missing fields get defaults. Blocks may keep an "id" (from
 get_page, [A-Za-z0-9_-]{1,40}); omit it for new blocks. The "index" field that
 get_page adds is ignored on write.
 
+Leave existing blocks alone that you do not understand or cannot recreate exactly
+(uploaded or embedded videos, embeds, fields you do not know). For local changes use
+edit_blocks: blocks you do not insert or replace are kept exactly as stored. Use
+update_page "blocks" only to rewrite a whole page, and then pass every existing
+block you keep back unchanged, as get_page returned it.
+
 ## Block types
 
 | type | data | text format |
@@ -1667,7 +1691,7 @@ get_page adds is ignored on write.
 | code | {code} - language is detected automatically | raw text, stored as is (no escaping needed) |
 | delimiter | {style: "stars"/"line"/"dashed"/"dots" (default stars)} | - |
 | table | {withHeadings: bool (first row = header), content: [[cell, ...], ...]} - rows are padded to equal length | cells: inline HTML, "\n" becomes <br> |
-| image | {url, caption, stretched, withBorder, withBackground} (booleans default false) | caption: plain text, max 500 |
+| image | {url, caption, stretched, withBorder, withBackground} (booleans default false) | caption: plain text |
 | warning | callout: {type: "info"/"tip"/"warning"/"danger" (default info), title, message} | inline HTML |
 | timeline | {numbered: bool, items: [{date, title, desc}]} | plain text; "\n" in desc = line break |
 | collapse | {title, body, open: bool} - expandable section | plain text; "\n" in body = line break |
@@ -1902,7 +1926,7 @@ mcpTool('create_page', [
 mcpTool('update_page', [
     'title'       => 'Update page',
     'description' => 'Change page metadata and/or replace the whole content. Only the fields you pass change. '
-                   . 'blocks replaces ALL blocks (use edit_blocks for single blocks). cover: null removes it. '
+                   . 'blocks replaces ALL blocks (use edit_blocks for single blocks); pass existing blocks you keep back unchanged, as get_page returned them. cover: null removes it. '
                    . 'section only applies to root pages ("" or null removes it); a page that changes section moves behind the last page of that section. '
                    . 'Pass the updatedAt from get_page as if_updated_at to avoid overwriting newer changes. Use move_page / set_page_id for parent, space or id.',
     'inputSchema' => ['type' => 'object', 'properties' => [
@@ -1989,7 +2013,7 @@ mcpTool('edit_blocks', [
     'title'       => 'Edit blocks',
     'description' => 'Change single blocks of a page without resending the rest. Operations run in order on a copy; index = position at the time of that operation (see "index" in get_page): '
                    . '{op:"insert", index, blocks:[…]} (index = block count appends), {op:"replace", index, block}, {op:"delete", index, count=1}, {op:"move", from, to} (to = final position). '
-                   . 'Any invalid operation or index aborts everything, nothing is saved. Returns the new block count and updatedAt.',
+                   . 'Blocks you do not insert or replace stay exactly as stored. Any invalid operation or index aborts everything, nothing is saved. Returns the new block count and updatedAt.',
     'inputSchema' => ['type' => 'object', 'properties' => [
         'id'            => ['type' => 'string', 'description' => 'Page id'],
         'operations'    => ['type' => 'array', 'description' => 'Operations, applied in order', 'items' => ['type' => 'object', 'properties' => [
@@ -2032,6 +2056,9 @@ mcpTool('edit_blocks', [
             }
             return $v;
         };
+        // Only the blocks the agent supplies are normalized. Existing blocks
+        // (kept, moved) are copied as stored, so editor-made blocks the
+        // normalizer would reject or change (other embeds, extra fields) survive.
         $normalize = function (array $list) use ($where) {
             try {
                 return mcpNormalizeBlocks($list);
