@@ -418,7 +418,8 @@ The endpoint takes the file itself as the request body (`POST` or `PUT`, not a m
 - **Concurrent editing** — the editor writes `spaces.json` and `settings.json` as a whole on every save, and a page that is open in the editor is saved from its in-browser copy. If an editor tab is open while an agent works, that tab can overwrite the agent's changes. **Reload the editor after an agent has made changes.** Agents protect their own writes with `if_updated_at`; there is no real locking.
 - **No Markdown via MCP** — agents read and write EditorJS blocks. The Markdown import/export in the editor runs in the browser only.
 - **No token scopes and no OAuth** — every token has full rights. Clients that try OAuth discovery after a `401` fail with their own error message; in that case, check the token.
-- `footerTailHtml` and `footerText` written through MCP are limited to the inline HTML whitelist.
+- `footerTailHtml` and `footerText` written through MCP are limited to the same whitelist the footer uses in the browser: `a`, `b`, `strong`, `i`, `em`, `u`, `span`, `small`, `code`, `br`, with `title` on all of them and `href`/`target`/`rel` on links. Other tags are stored as visible text, and links are limited to safe schemes.
+- **Drafts** — `draft: true` hides only that page. Its subpages drop out of the public sidebar but stay reachable by URL, so mark them as drafts too if they must stay hidden.
 
 ### Server requirements
 

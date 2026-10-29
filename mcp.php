@@ -81,7 +81,7 @@ function mcpSubstr(string $s, int $start, int $len): string {
 // '?' to accept an explicit null (returned as null). Otherwise null counts as
 // missing: the default is returned, or McpToolError when the argument is
 // required (no $default given). Lenient: numeric strings for int/number,
-// "true"/"false"/0/1 for bool, numbers for string.
+// "true"/"false"/0/1 for bool. Strict for string: only JSON strings.
 // For "null means remove" semantics, test array_key_exists() first.
 function mcpArg(array $args, string $name, string $type, $default = MCP_REQUIRED) {
     $nullable = $type !== '' && $type[0] === '?';
@@ -93,14 +93,16 @@ function mcpArg(array $args, string $name, string $type, $default = MCP_REQUIRED
         return $default;
     }
     $v = $args[$name];
-    $bad = function () use ($name, $type) {
-        return new McpToolError("Parameter '$name' must be of type $type");
+    $bad = function () use ($name, $type, $v) {
+        $got = is_bool($v) ? 'boolean' : (is_int($v) || is_float($v) ? 'number'
+             : (is_string($v) ? 'string' : (is_array($v) ? (mcpIsList($v) ? 'array' : 'object') : gettype($v))));
+        return new McpToolError("Parameter '$name' must be of type $type (got $got)");
     };
 
     switch ($type) {
         case 'string':
+            // Strict: numbers, bools, arrays are rejected (no silent coercion).
             if (is_string($v)) return $v;
-            if (is_int($v) || is_float($v)) return (string)$v;
             throw $bad();
         case 'int':
             if (is_int($v)) return $v;
@@ -214,6 +216,61 @@ function mcpSanitizeInlineHtml(string $html): string {
         // The editor/importer always mark these spans with their class.
         if ($tag === 'mark') $attrs['class'] = 'cdx-marker';
         if ($tag === 'code') $attrs['class'] = 'inline-code';
+        if ($tag === 'a' && ($attrs['target'] ?? '') === '_blank' && empty($attrs['rel'])) $attrs['rel'] = 'noopener';
+
+        $out = '<' . $tag;
+        foreach ($attrs as $k => $v) {
+            $out .= ' ' . $k . '="' . htmlspecialchars($v, ENT_QUOTES | ENT_HTML5, 'UTF-8') . '"';
+        }
+        return $out . '>';
+    }, $html) ?? '';
+}
+
+// Footer whitelist: exactly sanitizeFooterHtml() in assets/shared.js
+// (tags a b strong i em u span small code br; title everywhere; a also
+// href, target, rel).
+const MCP_FOOTER_TAGS = [
+    'a' => ['href', 'target', 'rel', 'title'], 'b' => ['title'], 'strong' => ['title'],
+    'i' => ['title'], 'em' => ['title'], 'u' => ['title'], 'span' => ['title'],
+    'small' => ['title'], 'code' => ['title'], 'br' => ['title'],
+];
+
+// Sanitizer for footerText / footerTailHtml: same rebuild-or-escape approach
+// as mcpSanitizeInlineHtml, with the footer whitelist. Allowed tags are
+// rebuilt (allowed attributes only, values re-escaped, href via
+// mcpSanitizeUrl), everything else that starts with "<" is escaped.
+function mcpSanitizeFooterHtml(string $html): string {
+    if ($html === '') return '';
+    $html = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $html) ?? '';
+    return preg_replace_callback('/<[^>]*>?/', function ($m) {
+        $raw = $m[0];
+        $escaped = str_replace(['<', '>'], ['&lt;', '&gt;'], $raw);
+        if (!preg_match('/^<\s*(\/?)\s*([a-zA-Z][a-zA-Z0-9]*)(.*?)>$/s', $raw, $p)) return $escaped;
+        $tag = strtolower($p[2]);
+        if (!array_key_exists($tag, MCP_FOOTER_TAGS)) return $escaped;
+        $rest = $p[3];
+        if ($rest !== '' && !preg_match('/^[\s\/]/', $rest)) return $escaped;
+        if ($p[1] === '/') return $tag === 'br' ? '' : "</$tag>";
+
+        $attrs = [];
+        preg_match_all('/([a-zA-Z_:][-a-zA-Z0-9_:.]*)(?:\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s"\'=<>`]+)))?/s',
+            $rest, $am, PREG_SET_ORDER);
+        foreach ($am as $a) {
+            $name = strtolower($a[1]);
+            if (!in_array($name, MCP_FOOTER_TAGS[$tag], true) || isset($attrs[$name])) continue;
+            $val = ($a[2] ?? '') . ($a[3] ?? '') . ($a[4] ?? ''); // only one group matches
+            $val = html_entity_decode($val, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            if ($name === 'href') {
+                $val = mcpSanitizeUrl($val, true);
+            } elseif ($name === 'target') {
+                $val = in_array(strtolower(trim($val)), ['_blank', '_self'], true) ? strtolower(trim($val)) : '';
+            } elseif ($name === 'rel') {
+                $ok = array_intersect(preg_split('/\s+/', strtolower(trim($val))) ?: [],
+                                      ['noopener', 'noreferrer', 'nofollow']);
+                $val = implode(' ', array_unique($ok));
+            }
+            if ($val !== '') $attrs[$name] = $val;
+        }
         if ($tag === 'a' && ($attrs['target'] ?? '') === '_blank' && empty($attrs['rel'])) $attrs['rel'] = 'noopener';
 
         $out = '<' . $tag;
@@ -1334,7 +1391,7 @@ $MCP_RO = ['readOnlyHint' => true, 'destructiveHint' => false, 'idempotentHint' 
 mcpTool('list_pages', [
     'title'       => 'List page tree',
     'description' => 'Page tree per space, in sidebar order: root pages grouped into sections (section null = no section, groups in order of first appearance), subpages nested in children. Metadata only, no content (use get_page). '
-                   . 'include_drafts=false shows what the public sees (drafts and their subpages are left out). Pages the sidebar cannot show (unknown space, missing parent, cycle) are listed under "unreachable".',
+                   . 'include_drafts=false shows the public sidebar (drafts and their subpages are left out; subpages that are not drafts themselves are still public by URL). Pages the sidebar cannot show (unknown space, missing parent, cycle) are listed under "unreachable".',
     'inputSchema' => ['type' => 'object', 'properties' => [
         'space_id'       => ['type' => 'string', 'description' => 'Only this space (id from get_site). Default: all spaces.'],
         'include_drafts' => ['type' => 'boolean', 'description' => 'Include draft pages (default true).', 'default' => true],
@@ -1664,7 +1721,9 @@ Page cover (create_page / update_page "cover"; null removes it):
   group). Subpages never have a section. Groups appear in the order of their first page;
   a new root page with an existing section is placed behind that section's last page.
 - Siblings are ordered by "order" (0..n-1). Use position on create/move, or reorder_pages.
-- draft: true hides a page (and its subpages) from the public viewer.
+- draft: true hides only that page from the public viewer. Its subpages drop out of the
+  public sidebar, but stay public by URL (index.php?page=ID) and via the API. To hide
+  a whole subtree, set draft: true on every subpage too.
 - Page ids: lowercase a-z, 0-9, "-", "_" (max 60), derived from the title if not given.
   They are part of the URL: index.php?page=ID.
 
@@ -1689,7 +1748,7 @@ Page cover (create_page / update_page "cover"; null removes it):
 - create_space / update_space (name, icon, tab position) / delete_space (confirm: true;
   trashes all pages of the space; the last space cannot be deleted).
 - update_settings: siteName, tabTitle, accentColor "#rrggbb", theme "dark"/"light",
-  lang "de"/"en"/"sk", footerText / footerTailHtml (inline HTML), hideSingleSpaceTabs,
+  lang "de"/"en"/"sk", footerText / footerTailHtml (footer HTML), hideSingleSpaceTabs,
   shareSectionEnabled, translateEnabled. Logo and favicon only in the editor.
 - position (create_page, move_page) is the 0-based index among the siblings; for
   root pages among all root pages of the space, across sections.
@@ -2108,7 +2167,7 @@ mcpTool('move_page', [
     $out = mcpPageSummary($pages[$id]) + [
         'moved'             => true,
         'position'          => $pos,
-        'siblingsReordered' => array_values(array_diff(array_keys($changed), [$id])),
+        'siblingsReordered' => array_values(array_map('strval', array_diff(array_keys($changed), [$id]))),
     ];
     if ($spaceChanged) $out['subpagesMovedToSpace'] = $descendants;
     $warnings = [];
@@ -2162,7 +2221,7 @@ mcpTool('reorder_pages', [
     foreach ($changed as $cid => $cp) $pages[$cid] = $cp;
     mcpSavePagesById($pages, array_keys($changed));
 
-    $out = ['spaceId' => $spaceId, 'parentId' => $parentId, 'order' => $ids, 'changed' => array_keys($changed)];
+    $out = ['spaceId' => $spaceId, 'parentId' => $parentId, 'order' => $ids, 'changed' => array_map('strval', array_keys($changed))];
     if ($parentId === null && ($w = mcpSectionWarning($pages, $spaceId))) $out['warning'] = $w;
     return $out;
 });
@@ -2184,9 +2243,9 @@ mcpTool('set_page_id', [
     $newRaw = mcpArg($args, 'new_id', 'string');
     if (trim($newRaw) === $id) throw new McpToolError('new_id is the same as the current id');
     $newId = mcpRequireNewPageId($newRaw, $pages, 'new_id');
-    $children = array_values(array_filter(array_keys($pages), function ($pid) use ($pages, $id) {
+    $children = array_values(array_map('strval', array_filter(array_keys($pages), function ($pid) use ($pages, $id) {
         return mcpParentOf($pages[$pid]) === $id;
-    }));
+    })));
 
     renameStoredPage($id, $newId);
 
@@ -2253,7 +2312,7 @@ mcpTool('delete_page', [
         foreach ($subtree as $d) mcpRewritePageLinks($p['content']['blocks'], $d, null, $n);
         if ($n > 0) $linkedFrom[] = ['id' => (string)$pid, 'links' => $n];
     }
-    $out = ['deleted' => $subtree, 'trash' => 'data/trash/pages', 'siblingsReordered' => array_keys($changed)];
+    $out = ['deleted' => $subtree, 'trash' => 'data/trash/pages', 'siblingsReordered' => array_map('strval', array_keys($changed))];
     if ($linkedFrom) $out['linkedFrom'] = $linkedFrom;
     return $out;
 });
@@ -2344,7 +2403,7 @@ mcpTool('set_section', [
     }
     mcpSavePagesById($pages, array_merge($moved, array_keys($changed)));
     $out = ['section' => $section, 'changed' => $moved, 'unchanged' => $unchanged,
-            'siblingsReordered' => array_values(array_diff(array_keys($changed), $moved))];
+            'siblingsReordered' => array_values(array_map('strval', array_diff(array_keys($changed), $moved)))];
     $warnings = [];
     foreach (array_keys($bySpace) as $sid) {
         if ($w = mcpSectionWarning($pages, $pages[$bySpace[$sid][0]]['spaceId'] ?? null)) $warnings[] = $w;
@@ -2479,7 +2538,7 @@ mcpTool('delete_space', [
 mcpTool('update_settings', [
     'title'       => 'Update site settings',
     'description' => 'Change site settings; only the keys you pass change, the rest stays. Values: siteName, tabTitle (plain text); accentColor "#rrggbb"; theme "dark"|"light" (default theme for visitors); '
-                   . 'lang "de"|"en"|"sk" (interface language, also the original language for the translate widget); footerText, footerTailHtml (inline HTML: b, strong, i, em, u, s, mark, code, br, a); '
+                   . 'lang "de"|"en"|"sk" (interface language, also the original language for the translate widget); footerText, footerTailHtml (HTML like the editor footer: a, b, strong, i, em, u, span, small, code, br; title on all, href/target/rel on a; other tags are shown as text); '
                    . 'hideSingleSpaceTabs, shareSectionEnabled, translateEnabled (booleans). Logo and favicon can only be changed in the editor. Returns the new settings like get_settings.',
     'inputSchema' => ['type' => 'object', 'properties' => [
         'siteName'            => ['type' => 'string', 'description' => 'Site name next to the logo (max. 100)'],
@@ -2520,7 +2579,7 @@ mcpTool('update_settings', [
     foreach (['footerText', 'footerTailHtml'] as $k) {
         if (($v = mcpArg($args, $k, 'string', null)) === null) continue;
         if (mcpStrlen($v) > 2000) throw new McpToolError("$k is too long (max. 2000 characters)");
-        $new[$k] = mcpSanitizeInlineHtml(trim($v));
+        $new[$k] = mcpSanitizeFooterHtml(trim($v));
     }
     foreach (['hideSingleSpaceTabs', 'shareSectionEnabled', 'translateEnabled'] as $k) {
         if (($v = mcpArg($args, $k, 'bool', null)) !== null) $new[$k] = $v;

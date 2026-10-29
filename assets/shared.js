@@ -55,6 +55,15 @@ function esc(str) {
     return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// CSS url() token for an arbitrary value: quoted string with \ and " escaped
+// and control characters (newlines etc.) as hex escapes, so a ")" or quote in
+// the value cannot end the url() and inject further declarations/layers.
+function cssUrl(value) {
+    const s = String(value ?? '').replace(/[\\"\x00-\x1F\x7F]/g,
+        (c) => (c === '\\' || c === '"') ? '\\' + c : '\\' + c.charCodeAt(0).toString(16) + ' ');
+    return `url("${s}")`;
+}
+
 function sanitizeFooterHtml(input) {
     const tpl = document.createElement('template');
     tpl.innerHTML = String(input ?? '');
@@ -816,7 +825,7 @@ function showHoverPreview(pageId, anchorEl) {
             if (page.cover.type === 'color') {
                 coverEl.style.background = page.cover.value;
             } else {
-                coverEl.style.background = `url(${page.cover.value}) center/cover no-repeat`;
+                coverEl.style.background = `${cssUrl(page.cover.value)} center/cover no-repeat`;
             }
         } else {
             coverEl.style.display = 'none';
