@@ -749,6 +749,264 @@ function mcpImageUsedBy(string $filename, ?array $raw = null): array {
     return $ids;
 }
 
+// ── Page write helpers (AP5, reusable by AP6) ──
+
+// Remove diacritics like JS normalize('NFD').replace(/[̀-ͯ]/g, '').
+// Without intl a map covers the common Latin letters (incl. de/sk).
+function mcpStripDiacritics(string $s): string {
+    if (class_exists('Normalizer')) {
+        $n = Normalizer::normalize($s, Normalizer::FORM_D);
+        if (is_string($n)) return preg_replace('/[\x{0300}-\x{036f}]/u', '', $n) ?? $s;
+    }
+    static $map = null;
+    if ($map === null) {
+        $map = [];
+        foreach (['a' => 'àáâãäåāăą', 'c' => 'çćč', 'd' => 'ď', 'e' => 'èéêëēėęě', 'i' => 'ìíîïīį', 'l' => 'ĺľ',
+                  'n' => 'ñńň', 'o' => 'òóôõöōő', 'r' => 'ŕř', 's' => 'śšşș', 't' => 'ťţț', 'u' => 'ùúûüūůűų',
+                  'y' => 'ýÿ', 'z' => 'źżž'] as $base => $chars) {
+            foreach (preg_split('//u', $chars, -1, PREG_SPLIT_NO_EMPTY) as $c) $map[$c] = $base;
+        }
+    }
+    return strtr($s, $map);
+}
+
+// Page id from a title, like pageSlug() in editor.php (without the
+// uniqueness loop, see mcpUniquePageId): lowercase, no diacritics, spaces → "-".
+function mcpSlugify(string $title): string {
+    $s = mcpStripDiacritics(mcpLower($title));
+    $s = preg_replace('/[^a-z0-9\s-]/u', '', $s) ?? '';
+    $s = preg_replace('/\s+/u', '-', $s) ?? '';
+    $s = preg_replace('/-+/', '-', $s) ?? '';
+    $s = rtrim(substr(trim($s, '-'), 0, 60), '-');
+    return $s !== '' ? $s : 'page';
+}
+
+// User-typed page id, like sanitizeManualId() in editor.php.
+function mcpSanitizeManualId(string $raw): string {
+    $s = mcpStripDiacritics(mcpLower(trim($raw)));
+    $s = preg_replace('/\s+/u', '-', $s) ?? '';
+    $s = preg_replace('/[^a-z0-9_-]/', '', $s) ?? '';
+    $s = preg_replace('/-+/', '-', $s) ?? '';
+    $s = preg_replace('/^[-_]+|[-_]+$/', '', $s) ?? '';
+    return substr($s, 0, 60);
+}
+
+// True if a page id is used or reserved ("<id>_rating" is the rating file of <id>
+// and is hidden by pageJsonFiles()).
+function mcpPageIdTaken(string $id, array $pages): bool {
+    return isset($pages[$id]) || file_exists(pageFilePath($id)) || preg_match('/_rating$/', $id);
+}
+
+// $base, or "$base-1", "$base-2", … (first free one, max. 60 characters).
+function mcpUniquePageId(string $base, array $pages): string {
+    $candidate = $base;
+    for ($n = 1; mcpPageIdTaken($candidate, $pages); $n++) {
+        $suffix = '-' . $n;
+        $candidate = rtrim(substr($base, 0, 60 - strlen($suffix)), '-') . $suffix;
+    }
+    return $candidate;
+}
+
+// Explicit new page id (create_page id, set_page_id new_id). Never renamed
+// silently: a malformed id is an error with a suggestion, a used id too.
+function mcpRequireNewPageId(string $raw, array $pages, string $param = 'id'): string {
+    $raw = trim($raw);
+    $shown = mcpSanitizeText($raw, 80);
+    $clean = mcpSanitizeManualId($raw);
+    if ($clean === '') {
+        throw new McpToolError("Invalid $param '$shown': page ids use lowercase a-z, 0-9, \"-\" and \"_\" (max. 60 characters)");
+    }
+    if ($clean !== $raw) {
+        throw new McpToolError("Invalid $param '$shown': page ids use lowercase a-z, 0-9, \"-\" and \"_\" (max. 60 characters, not starting or ending with \"-\"/\"_\"). Did you mean '$clean'?");
+    }
+    if (preg_match('/_rating$/', $clean)) throw new McpToolError("Invalid $param '$clean': ids ending in \"_rating\" are reserved");
+    if (mcpPageIdTaken($clean, $pages)) {
+        throw new McpToolError("Page id already exists: $clean. Choose another id" . ($param === 'id' ? ' or omit id to derive one from the title' : '') . '.');
+    }
+    return $clean;
+}
+
+// parentId of a page, null for root pages ('' counts as root, like the editor).
+function mcpParentOf(array $p): ?string {
+    $pid = $p['parentId'] ?? null;
+    return is_string($pid) && $pid !== '' ? $pid : null;
+}
+
+// Section argument → stored value: plain text (max. 100), '' / null → null.
+function mcpSectionValue($v): ?string {
+    if ($v === null) return null;
+    if (!is_scalar($v)) throw new McpToolError('section must be a string or null');
+    $s = mcpSanitizeText((string)$v, 100);
+    return $s === '' ? null : $s;
+}
+
+// Icon argument: '' → $default, invalid → McpToolError.
+function mcpIconValue($v, string $default = 'fa-file'): string {
+    if (!is_string($v)) throw new McpToolError('icon must be a string like "fa-book"');
+    if (trim($v) === '') return $default;
+    $icon = mcpSanitizeIcon($v, '');
+    if ($icon === '') throw new McpToolError('Invalid icon: use a Font Awesome name like "fa-book" or "rocket"');
+    return $icon;
+}
+
+// All descendants of a page (children, grandchildren, …), any space, cycle-safe.
+function mcpDescendantIds(array $pages, string $id): array {
+    $byParent = [];
+    foreach ($pages as $pid => $p) {
+        $parent = mcpParentOf($p);
+        if ($parent !== null) $byParent[$parent][] = (string)$pid;
+    }
+    $out = [];
+    $seen = [$id => true];
+    $queue = [$id];
+    while ($queue) {
+        $cur = array_shift($queue);
+        foreach ($byParent[$cur] ?? [] as $child) {
+            if (isset($seen[$child])) continue;
+            $seen[$child] = true;
+            $out[] = $child;
+            $queue[] = $child;
+        }
+    }
+    return $out;
+}
+
+// Ids of the siblings (same spaceId, same parentId; null = root) in sidebar
+// order, without $exclude.
+function mcpSiblingIds(array $pages, $spaceId, ?string $parentId, array $exclude = []): array {
+    $ex = array_flip($exclude);
+    $sib = array_filter($pages, function ($p) use ($spaceId, $parentId, $ex) {
+        return ($p['spaceId'] ?? null) === $spaceId && mcpParentOf($p) === $parentId && !isset($ex[$p['id']]);
+    });
+    return array_map(function ($p) { return (string)$p['id']; }, mcpSortPages($sib));
+}
+
+// Default index for a root page with $section among $siblingIds (ordered,
+// moved pages already removed): behind the last page with the same section
+// (null = no section), or the end if there is none (plan §2).
+function mcpSectionInsertIndex(array $pages, array $siblingIds, ?string $section): int {
+    $idx = count($siblingIds);
+    foreach (array_values($siblingIds) as $i => $sid) {
+        if (isset($pages[$sid]) && mcpPageSection($pages[$sid]) === $section) $idx = $i + 1;
+    }
+    return $idx;
+}
+
+// Put the pages $ids (in that order) at $index among their siblings
+// ($spaceId, $parentId) and renumber the group 0…n-1. The pages must already
+// carry that spaceId/parentId in $pages. Returns the pages whose order changed
+// (keyed by id, see mcpReindexSiblings); save them plus the moved pages.
+function mcpPlacePages(array $pages, $spaceId, ?string $parentId, array $ids, int $index): array {
+    $others = mcpSiblingIds($pages, $spaceId, $parentId, $ids);
+    $index = max(0, min($index, count($others)));
+    array_splice($others, $index, 0, array_values($ids));
+    return mcpReindexSiblings($pages, $spaceId, $parentId, $others);
+}
+
+// Save the given pages from $pages (each via mcpSavePage), skipping unknown ids.
+function mcpSavePagesById(array $pages, array $ids): array {
+    $saved = [];
+    foreach (array_unique($ids) as $id) {
+        if (!isset($pages[$id])) continue;
+        mcpSavePage($pages[$id]);
+        $saved[] = (string)$id;
+    }
+    return $saved;
+}
+
+// Timestamp for updatedAt: ISO 8601 with milliseconds, so two edits within
+// one second still differ for if_updated_at.
+function mcpNowIso(): string {
+    return (new DateTimeImmutable('now'))->format('Y-m-d\TH:i:s.vP');
+}
+
+// Mark a content/metadata edit: new updatedAt and content.time.
+function mcpTouchPage(array $page): array {
+    $now = mcpNowIso();
+    // Every edit must change updatedAt (two edits within one millisecond).
+    if ($now === ($page['updatedAt'] ?? null)) {
+        $now = (new DateTimeImmutable($now))->modify('+1 millisecond')->format('Y-m-d\TH:i:s.vP');
+    }
+    $page['updatedAt'] = $now;
+    if (!is_array($page['content'] ?? null)) $page['content'] = ['blocks' => []];
+    $page['content']['time'] = (int)round(microtime(true) * 1000);
+    return $page;
+}
+
+// Optimistic locking: if_updated_at must equal the stored updatedAt (same
+// instant; "Z" vs "+00:00" spelling is fine). Missing/empty → no check.
+function mcpCheckUpdatedAt(array $page, array $args): void {
+    $want = trim(mcpArg($args, 'if_updated_at', 'string', ''));
+    if ($want === '') return;
+    $have = (string)($page['updatedAt'] ?? '');
+    if ($want === $have) return;
+    try {
+        if ($have !== '' && (new DateTimeImmutable($want))->format('U.u') === (new DateTimeImmutable($have))->format('U.u')) return;
+    } catch (Exception $e) { /* unparsable → mismatch */ }
+    throw new McpToolError('Page changed since you read it – reload with get_page (updatedAt is now "'
+        . ($have === '' ? 'unset' : $have) . '", you sent "' . mcpSanitizeText($want, 60) . '") and apply your change again.');
+}
+
+// Page metadata for write-tool results: no blocks, plus blockCount and urls.
+function mcpPageSummary(array $page): array {
+    $out = [];
+    foreach (MCP_PAGE_KEYS as $k) {
+        if ($k !== 'content') $out[$k] = $page[$k] ?? null;
+    }
+    $out['draft'] = !empty($page['draft']);
+    $out['blockCount'] = is_array($page['content']['blocks'] ?? null) ? count($page['content']['blocks']) : 0;
+    $out['urls'] = mcpPageUrls((string)$page['id']);
+    return $out;
+}
+
+// Warning text if root pages of one section are not next to each other by
+// order (the sidebar still groups them, so 'order' and display differ).
+function mcpSectionWarning(array $pages, $spaceId): ?string {
+    $seen = []; $split = []; $prev = null; $first = true;
+    foreach (mcpSiblingIds($pages, $spaceId, null) as $id) {
+        $k = mcpPageSection($pages[$id]) ?? '';
+        if (!$first && $k === $prev) continue;
+        if (isset($seen[$k])) $split[$k] = true;
+        $seen[$k] = true; $prev = $k; $first = false;
+    }
+    if (!$split) return null;
+    $names = array_map(function ($k) { return $k === '' ? '(no section)' : '"' . $k . '"'; }, array_keys($split));
+    return 'Root pages of section ' . implode(', ', $names) . ' are not next to each other by order. The sidebar still shows each section as one group at the position of its first page. Use reorder_pages to keep each section together.';
+}
+
+// Rewrite (or, with $new = null, only count) links to page $old inside block
+// data: <a> tags with data-page-id="old" or a relative/own-site href
+// "…?page=old", and cards links equal to "old". $count = number of links.
+// Code blocks (data.code) are sample text, not links, and stay as they are.
+function mcpRewritePageLinks($value, string $old, ?string $new, int &$count) {
+    if (is_string($value)) {
+        if (strpos($value, $old) === false || stripos($value, '<a') === false) return $value;
+        $q = preg_quote($old, '/');
+        $base = preg_quote(mcpBaseUrl() . '/', '/');
+        $reId = '/(\bdata-page-id\s*=\s*["\'])' . $q . '(?=["\'])/';
+        $reHref = '/(\bhref\s*=\s*["\'](?:' . $base . ')?[^"\':?#]*\?(?:[^"\'#]*?&(?:amp;)?)?page=)' . $q . '(?=["\'&#])/';
+        return preg_replace_callback('/<a\b[^>]*>/i', function ($m) use ($reId, $reHref, $old, $new, &$count) {
+            $to = $new ?? ($old . "\0");
+            $tag = preg_replace([$reId, $reHref], '${1}' . $to, $m[0]) ?? $m[0];
+            if ($tag === $m[0]) return $m[0];
+            $count++;
+            return $new === null ? $m[0] : $tag;
+        }, $value) ?? $value;
+    }
+    if (is_array($value)) {
+        foreach ($value as $k => $v) {
+            if ($k === 'code') continue;
+            if ($k === 'link' && $v === $old) {
+                $count++;
+                if ($new !== null) $value[$k] = $new;
+            } else {
+                $value[$k] = mcpRewritePageLinks($v, $old, $new, $count);
+            }
+        }
+    }
+    return $value;
+}
+
 // ════════════════════════════════════════════
 //  3. TOOL REGISTRY
 // ════════════════════════════════════════════
@@ -1163,10 +1421,26 @@ Page cover (create_page / update_page "cover"; null removes it):
 
 ## Writing tools
 
-- create_page: new page with metadata and blocks.
-- update_page: metadata and/or "blocks" (replaces the whole content). Pass if_updated_at.
-- edit_blocks: insert / replace / delete / move single blocks by index (see get_page).
-- move_page, reorder_pages, set_section, rename_section: tree and grouping.
+- create_page: new page with metadata and blocks (id from the title unless given).
+- update_page: metadata and/or "blocks" (replaces the whole content). Pass the
+  updatedAt from get_page as if_updated_at; a mismatch means someone else changed
+  the page: reload it and apply your change again.
+- edit_blocks: change single blocks by index (the "index" from get_page), in order:
+  {"op": "insert", "index": 3, "blocks": [...]}   (index = block count appends)
+  {"op": "replace", "index": 0, "block": {...}}
+  {"op": "delete", "index": 2, "count": 1}
+  {"op": "move", "from": 4, "to": 0}
+  Each index refers to the blocks after the previous operations. One invalid
+  operation aborts the whole call, nothing is saved.
+- move_page: new parent (null = root), space, section or position; subpages move along.
+- reorder_pages: all siblings in their new order (exactly the current set).
+- set_section / rename_section: group root pages ("" removes the section).
+- set_page_id: change a page id; internal links in all pages are rewritten.
+- delete_page: moves to the trash; subpages only with include_children=true.
+- position (create_page, move_page) is the 0-based index among the siblings; for
+  root pages among all root pages of the space, across sections.
+- Structure changes (move, reorder, sections) do not change updatedAt; content and
+  metadata edits do.
 
 ## Example 1: heading, paragraph with links, nested list, code
 
@@ -1204,6 +1478,624 @@ Page cover (create_page / update_page "cover"; null removes it):
 ]
 GUIDE;
 }
+
+// ── Page write tools (AP5) ─────────────────
+// Pages are always written with mcpSavePage(), blocks always pass
+// mcpNormalizeBlocks(). Content/metadata edits set updatedAt + content.time
+// (mcpTouchPage); pure structure changes (order, parent, space, section via
+// move/reorder/set_section/rename_section) leave them alone, like persistPages().
+
+$MCP_POSITION_DOC = '0-based index among the new siblings (for root pages: among all root pages of the space, across sections). Larger values = at the end.';
+
+// position argument: null when not given, otherwise an int >= 0.
+function mcpPositionArg(array $args): ?int {
+    $pos = mcpArg($args, 'position', 'int', null);
+    if ($pos !== null && $pos < 0) throw new McpToolError('position must be 0 or greater');
+    return $pos;
+}
+
+mcpTool('create_page', [
+    'title'       => 'Create page',
+    'description' => 'Create a page with metadata and EditorJS blocks (read get_content_guide first). '
+                   . 'The id is derived from the title (lowercase slug, "-1", "-2" … if taken) unless you pass id; an explicit id that is malformed or taken is an error. '
+                   . 'Default space: the parent\'s space, else the first space. Subpages (parent_id) never have a section. '
+                   . 'Default position: subpages at the end; root pages behind the last root page of the same section (or at the end if the section is new). '
+                   . 'Returns the page metadata (without blocks) and its urls.',
+    'inputSchema' => ['type' => 'object', 'properties' => [
+        'title'     => ['type' => 'string', 'description' => 'Page title (plain text)'],
+        'space_id'  => ['type' => 'string', 'description' => 'Space id (from get_site). Default: space of parent_id, else the first space.'],
+        'parent_id' => ['type' => ['string', 'null'], 'description' => 'Parent page id for a subpage; omit or null for a root page'],
+        'section'   => ['type' => ['string', 'null'], 'description' => 'Sidebar section (group label) for a root page; ignored for subpages'],
+        'id'        => ['type' => 'string', 'description' => 'Explicit page id: lowercase a-z, 0-9, "-", "_" (max. 60). Default: slug of the title.'],
+        'icon'      => ['type' => 'string', 'description' => 'Font Awesome icon, e.g. "fa-rocket" (default fa-file)'],
+        'subtitle'  => ['type' => 'string', 'description' => 'Short description under the title (plain text)'],
+        'blocks'    => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'EditorJS blocks [{type, data}], see get_content_guide'],
+        'cover'     => ['type' => ['object', 'null'], 'description' => 'Cover: {type:"color", value} or {type:"image", value, fit?, position?}'],
+        'draft'     => ['type' => 'boolean', 'description' => 'Hide from the public viewer (default false)'],
+        'position'  => ['type' => 'integer', 'minimum' => 0, 'description' => $MCP_POSITION_DOC],
+    ], 'required' => ['title'], 'additionalProperties' => false],
+    'annotations' => ['readOnlyHint' => false, 'destructiveHint' => false, 'idempotentHint' => false, 'openWorldHint' => false],
+], function (array $args): array {
+    $title = mcpSanitizeText(mcpArg($args, 'title', 'string'), 200);
+    if ($title === '') throw new McpToolError('title must not be empty');
+    $pages = mcpLoadAllPages();
+    $notes = [];
+
+    $spaceArg = trim(mcpArg($args, 'space_id', 'string', ''));
+    $parentId = trim((string)mcpArg($args, 'parent_id', '?string', ''));
+    if ($parentId !== '') {
+        $parent = $pages[$parentId] ?? null;
+        if ($parent === null) throw new McpToolError("parent_id not found: $parentId. Use list_pages to find page ids.");
+        $spaceId = (string)($parent['spaceId'] ?? '');
+        if ($spaceArg !== '' && $spaceArg !== $spaceId) {
+            throw new McpToolError("Parent page $parentId is in space $spaceId, not $spaceArg. Omit space_id for subpages.");
+        }
+        mcpRequireSpace($spaceId);
+    } else {
+        $parentId = null;
+        if ($spaceArg !== '') {
+            $spaceId = (string)mcpRequireSpace($spaceArg)['id'];
+        } else {
+            $spaces = mcpReadSpaces();
+            if (!$spaces) throw new McpToolError('There is no space yet. Create one first (create_space).');
+            $spaceId = (string)($spaces[0]['id'] ?? '');
+        }
+    }
+
+    $idArg = mcpArg($args, 'id', 'string', '');
+    $id = trim($idArg) !== '' ? mcpRequireNewPageId($idArg, $pages, 'id') : mcpUniquePageId(mcpSlugify($title), $pages);
+
+    $section = mcpSectionValue(mcpArg($args, 'section', '?string', null));
+    if ($parentId !== null && $section !== null) {
+        $notes[] = 'section ignored: subpages never have a section (only root pages are grouped)';
+        $section = null;
+    }
+
+    $page = [
+        'id'        => $id,
+        'spaceId'   => $spaceId,
+        'parentId'  => $parentId,
+        'title'     => $title,
+        'icon'      => mcpIconValue(mcpArg($args, 'icon', 'string', '')),
+        'subtitle'  => mcpSanitizeText(mcpArg($args, 'subtitle', 'string', ''), 300),
+        'section'   => $section,
+        'order'     => 0,
+        'updatedAt' => '',
+        'cover'     => mcpSanitizeCover(mcpArg($args, 'cover', '?any', null)),
+        'draft'     => mcpArg($args, 'draft', 'bool', false),
+        'content'   => ['time' => 0, 'blocks' => mcpNormalizeBlocks(mcpArg($args, 'blocks', 'array', []))],
+    ];
+    $page = mcpTouchPage($page);
+    $pages[$id] = $page;
+
+    $siblings = mcpSiblingIds($pages, $spaceId, $parentId, [$id]);
+    $pos = mcpPositionArg($args);
+    if ($pos === null) $pos = $parentId === null ? mcpSectionInsertIndex($pages, $siblings, $section) : count($siblings);
+    $pos = min($pos, count($siblings));
+    $changed = mcpPlacePages($pages, $spaceId, $parentId, [$id], $pos);
+    foreach ($changed as $cid => $cp) $pages[$cid] = $cp;
+
+    $saved = mcpSavePage($pages[$id]);
+    $others = mcpSavePagesById($pages, array_diff(array_keys($changed), [$id]));
+
+    $out = mcpPageSummary($saved) + ['siblingsReordered' => $others];
+    if ($parentId === null && ($w = mcpSectionWarning($pages, $spaceId))) $out['warning'] = $w;
+    if ($notes) $out['notes'] = $notes;
+    return $out;
+});
+
+mcpTool('update_page', [
+    'title'       => 'Update page',
+    'description' => 'Change page metadata and/or replace the whole content. Only the fields you pass change. '
+                   . 'blocks replaces ALL blocks (use edit_blocks for single blocks). cover: null removes it. '
+                   . 'section only applies to root pages ("" or null removes it); a page that changes section moves behind the last page of that section. '
+                   . 'Pass the updatedAt from get_page as if_updated_at to avoid overwriting newer changes. Use move_page / set_page_id for parent, space or id.',
+    'inputSchema' => ['type' => 'object', 'properties' => [
+        'id'            => ['type' => 'string', 'description' => 'Page id'],
+        'title'         => ['type' => 'string'],
+        'subtitle'      => ['type' => ['string', 'null']],
+        'icon'          => ['type' => 'string', 'description' => 'Font Awesome icon, e.g. "fa-book"'],
+        'section'       => ['type' => ['string', 'null'], 'description' => 'Root pages only; "" or null = no section'],
+        'cover'         => ['type' => ['object', 'null'], 'description' => 'New cover, or null to remove it'],
+        'draft'         => ['type' => 'boolean'],
+        'blocks'        => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'Replaces the whole content'],
+        'if_updated_at' => ['type' => 'string', 'description' => 'updatedAt you read; the update fails if the page changed since'],
+    ], 'required' => ['id'], 'additionalProperties' => false],
+    'annotations' => ['readOnlyHint' => false, 'destructiveHint' => true, 'idempotentHint' => true, 'openWorldHint' => false],
+], function (array $args): array {
+    $id = trim(mcpArg($args, 'id', 'string'));
+    $pages = mcpLoadAllPages();
+    $page = $pages[$id] ?? null;
+    if ($page === null) throw new McpToolError("Page not found: $id. Use list_pages or search_pages to find page ids.");
+    mcpCheckUpdatedAt($page, $args);
+
+    $fields = [];
+    $resection = false;
+    if (($title = mcpArg($args, 'title', 'string', null)) !== null) {
+        $title = mcpSanitizeText($title, 200);
+        if ($title === '') throw new McpToolError('title must not be empty');
+        $page['title'] = $title;
+        $fields[] = 'title';
+    }
+    if (array_key_exists('subtitle', $args)) {
+        $page['subtitle'] = mcpSanitizeText((string)mcpArg($args, 'subtitle', '?string', ''), 300);
+        $fields[] = 'subtitle';
+    }
+    if (($icon = mcpArg($args, 'icon', 'string', null)) !== null) {
+        $page['icon'] = mcpIconValue($icon, (string)($page['icon'] ?? 'fa-file'));
+        $fields[] = 'icon';
+    }
+    if (array_key_exists('section', $args)) {
+        $section = mcpSectionValue(mcpArg($args, 'section', '?string', null));
+        if (mcpParentOf($page) !== null) {
+            if ($section !== null) {
+                throw new McpToolError("section only applies to root pages; $id is a subpage of " . mcpParentOf($page) . '. Use move_page with parent_id null to make it a root page.');
+            }
+        } else {
+            $resection = $section !== mcpPageSection($page);
+            $page['section'] = $section;
+            $fields[] = 'section';
+        }
+    }
+    if (array_key_exists('cover', $args)) {
+        $page['cover'] = mcpSanitizeCover($args['cover']);
+        $fields[] = 'cover';
+    }
+    if (($draft = mcpArg($args, 'draft', 'bool', null)) !== null) {
+        $page['draft'] = $draft;
+        $fields[] = 'draft';
+    }
+    if (($blocks = mcpArg($args, 'blocks', 'array', null)) !== null) {
+        if (!is_array($page['content'] ?? null)) $page['content'] = [];
+        $page['content']['blocks'] = mcpNormalizeBlocks($blocks);
+        $fields[] = 'blocks';
+    }
+    if (!$fields) throw new McpToolError('Nothing to update: pass at least one of title, subtitle, icon, section, cover, draft, blocks');
+
+    $page = mcpTouchPage($page);
+    $pages[$id] = $page;
+    $changed = [];
+    if ($resection) {
+        $spaceId = $page['spaceId'] ?? null;
+        $sib = mcpSiblingIds($pages, $spaceId, null, [$id]);
+        $changed = mcpPlacePages($pages, $spaceId, null, [$id], mcpSectionInsertIndex($pages, $sib, $page['section']));
+        foreach ($changed as $cid => $cp) $pages[$cid] = $cp;
+    }
+    $saved = mcpSavePage($pages[$id]);
+    $others = mcpSavePagesById($pages, array_diff(array_keys($changed), [$id]));
+
+    $out = mcpPageSummary($saved) + ['updatedFields' => $fields];
+    if ($others) $out['siblingsReordered'] = $others;
+    if ($resection && ($w = mcpSectionWarning($pages, $page['spaceId'] ?? null))) $out['warning'] = $w;
+    return $out;
+});
+
+mcpTool('edit_blocks', [
+    'title'       => 'Edit blocks',
+    'description' => 'Change single blocks of a page without resending the rest. Operations run in order on a copy; index = position at the time of that operation (see "index" in get_page): '
+                   . '{op:"insert", index, blocks:[…]} (index = block count appends), {op:"replace", index, block}, {op:"delete", index, count=1}, {op:"move", from, to} (to = final position). '
+                   . 'Any invalid operation or index aborts everything, nothing is saved. Returns the new block count and updatedAt.',
+    'inputSchema' => ['type' => 'object', 'properties' => [
+        'id'            => ['type' => 'string', 'description' => 'Page id'],
+        'operations'    => ['type' => 'array', 'description' => 'Operations, applied in order', 'items' => ['type' => 'object', 'properties' => [
+            'op'     => ['type' => 'string', 'enum' => ['insert', 'replace', 'delete', 'move']],
+            'index'  => ['type' => 'integer', 'minimum' => 0],
+            'blocks' => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'insert: new blocks'],
+            'block'  => ['type' => 'object', 'description' => 'replace: the new block'],
+            'count'  => ['type' => 'integer', 'minimum' => 1, 'description' => 'delete: number of blocks (default 1)'],
+            'from'   => ['type' => 'integer', 'minimum' => 0],
+            'to'     => ['type' => 'integer', 'minimum' => 0],
+        ], 'required' => ['op']]],
+        'if_updated_at' => ['type' => 'string', 'description' => 'updatedAt you read; fails if the page changed since'],
+    ], 'required' => ['id', 'operations'], 'additionalProperties' => false],
+    'annotations' => ['readOnlyHint' => false, 'destructiveHint' => true, 'idempotentHint' => false, 'openWorldHint' => false],
+], function (array $args): array {
+    $id = trim(mcpArg($args, 'id', 'string'));
+    $page = mcpLoadPage($id);
+    mcpCheckUpdatedAt($page, $args);
+    $ops = mcpArg($args, 'operations', 'array');
+    if (!$ops) throw new McpToolError('operations must not be empty');
+    if (count($ops) > 500) throw new McpToolError('At most 500 operations per call');
+
+    $blocks = array_values(is_array($page['content']['blocks'] ?? null) ? $page['content']['blocks'] : []);
+    foreach ($ops as $i => $op) {
+        if (!is_array($op)) throw new McpToolError("operations[$i] must be an object {op, …}");
+        $name = is_string($op['op'] ?? null) ? $op['op'] : '';
+        $where = "operations[$i] ($name)";
+        $len = count($blocks);
+        $int = function (string $key, int $max, ?int $default = null) use ($op, $where, $len) {
+            if (!array_key_exists($key, $op) || $op[$key] === null) {
+                if ($default !== null) return $default;
+                throw new McpToolError("$where: missing $key");
+            }
+            $v = $op[$key];
+            if (is_string($v) && preg_match('/^\d{1,9}$/', $v)) $v = (int)$v;
+            if (is_float($v) && floor($v) === $v) $v = (int)$v;
+            if (!is_int($v)) throw new McpToolError("$where: $key must be an integer");
+            if ($v < 0 || $v > $max) {
+                throw new McpToolError("$where: $key $v is out of range " . ($max < 0 ? "(the page has no blocks at this point)" : "0..$max (the page has $len blocks at this point)") . '. Nothing was saved.');
+            }
+            return $v;
+        };
+        $normalize = function (array $list) use ($where) {
+            try {
+                return mcpNormalizeBlocks($list);
+            } catch (McpToolError $e) {
+                throw new McpToolError("$where: " . $e->getMessage() . ' Nothing was saved.');
+            }
+        };
+        switch ($name) {
+            case 'insert':
+                $at = $int('index', $len);
+                $new = $op['blocks'] ?? (isset($op['block']) ? [$op['block']] : null);
+                if (!is_array($new) || !mcpIsList($new) || !$new) throw new McpToolError("$where: blocks must be a non-empty array of {type, data}");
+                array_splice($blocks, $at, 0, $normalize($new));
+                break;
+            case 'replace':
+                $at = $int('index', $len - 1);
+                if (!is_array($op['block'] ?? null)) throw new McpToolError("$where: block must be an object {type, data}");
+                $b = $normalize([$op['block']])[0];
+                // Keep the EditorJS id of the replaced block unless a new one is given.
+                if (!isset($b['id']) && is_string($blocks[$at]['id'] ?? null)) $b = ['id' => $blocks[$at]['id']] + $b;
+                $blocks[$at] = $b;
+                break;
+            case 'delete':
+                $at = $int('index', $len - 1);
+                $count = $int('count', PHP_INT_MAX, 1);
+                if ($count < 1) throw new McpToolError("$where: count must be 1 or greater");
+                if ($at + $count > $len) throw new McpToolError("$where: cannot delete $count block(s) from index $at, the page has $len blocks at this point. Nothing was saved.");
+                array_splice($blocks, $at, $count);
+                break;
+            case 'move':
+                $from = $int('from', $len - 1);
+                $to = $int('to', $len - 1);
+                $moved = array_splice($blocks, $from, 1);
+                array_splice($blocks, $to, 0, $moved);
+                break;
+            default:
+                throw new McpToolError("operations[$i]: unknown op '" . mcpSanitizeText($name, 20) . "' (use insert, replace, delete or move). Nothing was saved.");
+        }
+    }
+
+    if (!is_array($page['content'] ?? null)) $page['content'] = [];
+    $page['content']['blocks'] = array_values($blocks);
+    $saved = mcpSavePage(mcpTouchPage($page));
+    return ['id' => $id, 'blockCount' => count($saved['content']['blocks']), 'updatedAt' => $saved['updatedAt'], 'operations' => count($ops)];
+});
+
+mcpTool('move_page', [
+    'title'       => 'Move page',
+    'description' => 'Move a page (with all its subpages) in the tree: under another parent, to the root (parent_id null), into another space, and/or to another position or section. '
+                   . 'Omitted parent_id keeps the parent (root of the new space when space_id changes). A page cannot be moved under itself or its own subpages. '
+                   . 'Root pages keep their section unless you pass section; subpages never have one. Default position: subpages at the end, root pages behind the last page of their section; '
+                   . 'without position, parent, space and section changes the page stays where it is. Old and new siblings are renumbered; updatedAt does not change.',
+    'inputSchema' => ['type' => 'object', 'properties' => [
+        'id'        => ['type' => 'string', 'description' => 'Page id'],
+        'parent_id' => ['type' => ['string', 'null'], 'description' => 'New parent page id, or null for the root level'],
+        'space_id'  => ['type' => 'string', 'description' => 'Target space (moves the whole subtree)'],
+        'section'   => ['type' => ['string', 'null'], 'description' => 'Section for a root page ("" or null = none)'],
+        'position'  => ['type' => 'integer', 'minimum' => 0, 'description' => $MCP_POSITION_DOC],
+    ], 'required' => ['id'], 'additionalProperties' => false],
+    'annotations' => ['readOnlyHint' => false, 'destructiveHint' => false, 'idempotentHint' => true, 'openWorldHint' => false],
+], function (array $args): array {
+    $id = trim(mcpArg($args, 'id', 'string'));
+    $pages = mcpLoadAllPages();
+    $page = $pages[$id] ?? null;
+    if ($page === null) throw new McpToolError("Page not found: $id. Use list_pages to find page ids.");
+    $oldSpace = $page['spaceId'] ?? null;
+    $oldParent = mcpParentOf($page);
+    $oldSection = mcpPageSection($page);
+    $descendants = mcpDescendantIds($pages, $id);
+    $notes = [];
+
+    $spaceArg = trim(mcpArg($args, 'space_id', 'string', ''));
+    if (array_key_exists('parent_id', $args)) {
+        $newParent = trim((string)mcpArg($args, 'parent_id', '?string', ''));
+        $newParent = $newParent === '' ? null : $newParent;
+    } else {
+        $newParent = ($spaceArg !== '' && $spaceArg !== $oldSpace) ? null : $oldParent;
+    }
+    if ($newParent !== null) {
+        if ($newParent === $id) throw new McpToolError('A page cannot be its own parent');
+        if (in_array($newParent, $descendants, true)) {
+            throw new McpToolError("Cannot move $id under $newParent: $newParent is a subpage of $id (that would create a cycle). Move $newParent first.");
+        }
+        $parent = $pages[$newParent] ?? null;
+        if ($parent === null) throw new McpToolError("parent_id not found: $newParent");
+        $newSpace = $parent['spaceId'] ?? null;
+        if ($spaceArg !== '' && $spaceArg !== $newSpace) {
+            throw new McpToolError("Parent page $newParent is in space $newSpace, not $spaceArg. Omit space_id when moving under a parent.");
+        }
+    } else {
+        $newSpace = $spaceArg !== '' ? $spaceArg : $oldSpace;
+    }
+    mcpRequireSpace((string)$newSpace);
+
+    if ($newParent === null) {
+        $newSection = array_key_exists('section', $args) ? mcpSectionValue(mcpArg($args, 'section', '?string', null)) : $oldSection;
+    } else {
+        $newSection = null;
+        if (array_key_exists('section', $args) && mcpSectionValue(mcpArg($args, 'section', '?string', null)) !== null) {
+            $notes[] = 'section ignored: subpages never have a section';
+        }
+    }
+    $pos = mcpPositionArg($args);
+    $sameGroup = $newSpace === $oldSpace && $newParent === $oldParent;
+    $spaceChanged = $newSpace !== $oldSpace;
+
+    if ($sameGroup && $pos === null && $newSection === $oldSection) {
+        return mcpPageSummary($page) + ['moved' => false, 'notes' => array_merge($notes, ['Nothing to change: same parent, space and section, no position given'])];
+    }
+
+    $page['spaceId'] = $newSpace;
+    $page['parentId'] = $newParent;
+    $page['section'] = $newSection;
+    $pages[$id] = $page;
+    if ($spaceChanged) {
+        foreach ($descendants as $d) $pages[$d]['spaceId'] = $newSpace;
+    }
+
+    $siblings = mcpSiblingIds($pages, $newSpace, $newParent, [$id]);
+    if ($pos === null) {
+        $pos = $newParent !== null ? count($siblings) : mcpSectionInsertIndex($pages, $siblings, $newSection);
+    }
+    $pos = min($pos, count($siblings));
+    $changed = mcpPlacePages($pages, $newSpace, $newParent, [$id], $pos);
+    foreach ($changed as $cid => $cp) $pages[$cid] = $cp;
+    if (!$sameGroup) {
+        foreach (mcpReindexSiblings($pages, $oldSpace, $oldParent) as $cid => $cp) { $pages[$cid] = $cp; $changed[$cid] = $cp; }
+    }
+
+    $toSave = array_merge([$id], $spaceChanged ? $descendants : [], array_keys($changed));
+    mcpSavePagesById($pages, $toSave);
+
+    $out = mcpPageSummary($pages[$id]) + [
+        'moved'             => true,
+        'position'          => $pos,
+        'siblingsReordered' => array_values(array_diff(array_keys($changed), [$id])),
+    ];
+    if ($spaceChanged) $out['subpagesMovedToSpace'] = $descendants;
+    $warnings = [];
+    if ($newParent === null && ($w = mcpSectionWarning($pages, $newSpace))) $warnings[] = $w;
+    if (!$sameGroup && $oldParent === null && $oldSpace !== $newSpace && ($w = mcpSectionWarning($pages, $oldSpace))) $warnings[] = $w;
+    if ($warnings) $out['warning'] = implode(' ', $warnings);
+    if ($notes) $out['notes'] = $notes;
+    return $out;
+});
+
+mcpTool('reorder_pages', [
+    'title'       => 'Reorder sibling pages',
+    'description' => 'Set the order of all siblings at once: the root pages of a space (parent_id omitted/null) or the subpages of one parent. '
+                   . 'page_ids must contain exactly the current siblings (each once), in the new order; otherwise the error lists the expected ids. '
+                   . 'For root pages keep each section\'s pages next to each other (the sidebar groups sections at the position of their first page). updatedAt does not change.',
+    'inputSchema' => ['type' => 'object', 'properties' => [
+        'space_id'  => ['type' => 'string', 'description' => 'Space id'],
+        'parent_id' => ['type' => ['string', 'null'], 'description' => 'Parent page id; omit or null for root pages'],
+        'page_ids'  => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'All sibling ids in the new order'],
+    ], 'required' => ['space_id', 'page_ids'], 'additionalProperties' => false],
+    'annotations' => ['readOnlyHint' => false, 'destructiveHint' => false, 'idempotentHint' => true, 'openWorldHint' => false],
+], function (array $args): array {
+    $spaceId = (string)mcpRequireSpace(trim(mcpArg($args, 'space_id', 'string')))['id'];
+    $pages = mcpLoadAllPages();
+    $parentId = trim((string)mcpArg($args, 'parent_id', '?string', ''));
+    $parentId = $parentId === '' ? null : $parentId;
+    if ($parentId !== null) {
+        if (!isset($pages[$parentId])) throw new McpToolError("parent_id not found: $parentId");
+        if (($pages[$parentId]['spaceId'] ?? null) !== $spaceId) {
+            throw new McpToolError("Page $parentId is in space " . ($pages[$parentId]['spaceId'] ?? '?') . ", not $spaceId");
+        }
+    }
+    $ids = [];
+    foreach (mcpArg($args, 'page_ids', 'array') as $v) {
+        if (!is_string($v) && !is_int($v)) throw new McpToolError('page_ids must be an array of page id strings');
+        $ids[] = trim((string)$v);
+    }
+    $expected = mcpSiblingIds($pages, $spaceId, $parentId);
+    $where = $parentId === null ? "root pages of space $spaceId" : "subpages of $parentId";
+    $dups = array_values(array_unique(array_diff_assoc($ids, array_unique($ids))));
+    $missing = array_values(array_diff($expected, $ids));
+    $extra = array_values(array_diff($ids, $expected));
+    if ($dups || $missing || $extra) {
+        $msg = 'page_ids must list exactly the ' . count($expected) . " $where, each once. Expected (current order): " . json_encode($expected) . '.';
+        if ($missing) $msg .= ' Missing: ' . json_encode($missing) . '.';
+        if ($extra)   $msg .= ' Not siblings here: ' . json_encode(array_map(function ($s) { return mcpSanitizeText($s, 60); }, $extra)) . '.';
+        if ($dups)    $msg .= ' Duplicates: ' . json_encode($dups) . '.';
+        throw new McpToolError($msg);
+    }
+    $changed = mcpReindexSiblings($pages, $spaceId, $parentId, $ids);
+    foreach ($changed as $cid => $cp) $pages[$cid] = $cp;
+    mcpSavePagesById($pages, array_keys($changed));
+
+    $out = ['spaceId' => $spaceId, 'parentId' => $parentId, 'order' => $ids, 'changed' => array_keys($changed)];
+    if ($parentId === null && ($w = mcpSectionWarning($pages, $spaceId))) $out['warning'] = $w;
+    return $out;
+});
+
+mcpTool('set_page_id', [
+    'title'       => 'Change page id',
+    'description' => 'Rename a page id (= its URL index.php?page=ID). Subpages are re-attached, ratings move along, and internal links to the old id in ALL pages '
+                   . '(<a data-page-id> / href="?page=…" and cards links) are rewritten; the result reports how many. '
+                   . 'Old URLs ?page=<old id> (bookmarks, search engines, external sites) stop working.',
+    'inputSchema' => ['type' => 'object', 'properties' => [
+        'id'     => ['type' => 'string', 'description' => 'Current page id'],
+        'new_id' => ['type' => 'string', 'description' => 'New id: lowercase a-z, 0-9, "-", "_" (max. 60), not used yet'],
+    ], 'required' => ['id', 'new_id'], 'additionalProperties' => false],
+    'annotations' => ['readOnlyHint' => false, 'destructiveHint' => false, 'idempotentHint' => false, 'openWorldHint' => false],
+], function (array $args): array {
+    $id = trim(mcpArg($args, 'id', 'string'));
+    $pages = mcpLoadAllPages();
+    if (!isset($pages[$id])) throw new McpToolError("Page not found: $id");
+    $newRaw = mcpArg($args, 'new_id', 'string');
+    if (trim($newRaw) === $id) throw new McpToolError('new_id is the same as the current id');
+    $newId = mcpRequireNewPageId($newRaw, $pages, 'new_id');
+    $children = array_values(array_filter(array_keys($pages), function ($pid) use ($pages, $id) {
+        return mcpParentOf($pages[$pid]) === $id;
+    }));
+
+    renameStoredPage($id, $newId);
+
+    $links = 0;
+    $updated = [];
+    foreach (mcpLoadAllPages() as $pid => $p) {
+        if (!is_array($p['content']['blocks'] ?? null)) continue;
+        $n = 0;
+        $blocks = mcpRewritePageLinks($p['content']['blocks'], $id, $newId, $n);
+        if ($n === 0) continue;
+        $p['content']['blocks'] = $blocks;
+        mcpSavePage(mcpTouchPage($p));
+        $links += $n;
+        $updated[] = (string)$pid;
+    }
+    return [
+        'id'                 => $newId,
+        'oldId'              => $id,
+        'urls'               => mcpPageUrls($newId),
+        'subpagesReattached' => $children,
+        'linksRewritten'     => $links,
+        'pagesUpdated'       => $updated,
+        'note'               => "Old links ?page=$id (bookmarks, search engines, external sites) no longer work.",
+    ];
+});
+
+mcpTool('delete_page', [
+    'title'       => 'Delete page',
+    'description' => 'Move a page to the trash (data/trash/pages on the server; not a hard delete). A page with subpages is only deleted with include_children=true, '
+                   . 'which trashes the whole subtree; otherwise the error lists the subpages. Remaining siblings are renumbered. '
+                   . 'The result lists pages that still link to the deleted pages (fix them with edit_blocks).',
+    'inputSchema' => ['type' => 'object', 'properties' => [
+        'id'               => ['type' => 'string', 'description' => 'Page id'],
+        'include_children' => ['type' => 'boolean', 'description' => 'Also delete all subpages (default false)', 'default' => false],
+    ], 'required' => ['id'], 'additionalProperties' => false],
+    'annotations' => ['readOnlyHint' => false, 'destructiveHint' => true, 'idempotentHint' => false, 'openWorldHint' => false],
+], function (array $args): array {
+    $id = trim(mcpArg($args, 'id', 'string'));
+    $include = mcpArg($args, 'include_children', 'bool', false);
+    $pages = mcpLoadAllPages();
+    $page = $pages[$id] ?? null;
+    if ($page === null) throw new McpToolError("Page not found: $id");
+    $children = mcpSortPages(array_filter($pages, function ($p) use ($id) { return mcpParentOf($p) === $id; }));
+    $subtree = array_merge([$id], mcpDescendantIds($pages, $id));
+    if ($children && !$include) {
+        $list = implode(', ', array_map(function ($c) { return $c['id'] . ' ("' . ($c['title'] ?? '') . '")'; }, $children));
+        throw new McpToolError("Page $id has " . count($children) . " subpage(s): $list. Pass include_children=true to delete the whole subtree ("
+            . count($subtree) . ' pages), or move the subpages first with move_page.');
+    }
+
+    trashPagesById($subtree);
+    foreach ($subtree as $d) {
+        if (file_exists(pageFilePath($d))) throw new McpToolError("Failed to move page $d to the trash");
+        unset($pages[$d]);
+    }
+    $changed = mcpReindexSiblings($pages, $page['spaceId'] ?? null, mcpParentOf($page));
+    foreach ($changed as $cid => $cp) $pages[$cid] = $cp;
+    mcpSavePagesById($pages, array_keys($changed));
+
+    $linkedFrom = [];
+    foreach ($pages as $pid => $p) {
+        if (!is_array($p['content']['blocks'] ?? null)) continue;
+        $n = 0;
+        foreach ($subtree as $d) mcpRewritePageLinks($p['content']['blocks'], $d, null, $n);
+        if ($n > 0) $linkedFrom[] = ['id' => (string)$pid, 'links' => $n];
+    }
+    $out = ['deleted' => $subtree, 'trash' => 'data/trash/pages', 'siblingsReordered' => array_keys($changed)];
+    if ($linkedFrom) $out['linkedFrom'] = $linkedFrom;
+    return $out;
+});
+
+mcpTool('rename_section', [
+    'title'       => 'Rename section',
+    'description' => 'Rename a sidebar section of a space (all its root pages get the new name), or remove the grouping with to = "". '
+                   . 'If the target section already exists, the pages are merged into it (placed behind its last page). updatedAt does not change.',
+    'inputSchema' => ['type' => 'object', 'properties' => [
+        'space_id' => ['type' => 'string', 'description' => 'Space id'],
+        'from'     => ['type' => 'string', 'description' => 'Current section name (exact)'],
+        'to'       => ['type' => ['string', 'null'], 'description' => 'New name; "" or null removes the section'],
+    ], 'required' => ['space_id', 'from', 'to'], 'additionalProperties' => false],
+    'annotations' => ['readOnlyHint' => false, 'destructiveHint' => false, 'idempotentHint' => false, 'openWorldHint' => false],
+], function (array $args): array {
+    $spaceId = (string)mcpRequireSpace(trim(mcpArg($args, 'space_id', 'string')))['id'];
+    $from = trim(mcpArg($args, 'from', 'string'));
+    if ($from === '') throw new McpToolError('from must name an existing section (use set_section to group pages without a section)');
+    if (!array_key_exists('to', $args)) throw new McpToolError('Missing required parameter: to ("" removes the section)');
+    $to = mcpSectionValue(mcpArg($args, 'to', '?string', null));
+    $pages = mcpLoadAllPages();
+    $roots = mcpSiblingIds($pages, $spaceId, null);
+    $hits = array_values(array_filter($roots, function ($rid) use ($pages, $from) { return mcpPageSection($pages[$rid]) === $from; }));
+    if (!$hits) {
+        $names = array_values(array_unique(array_filter(array_map(function ($rid) use ($pages) { return mcpPageSection($pages[$rid]); }, $roots), 'is_string')));
+        throw new McpToolError("No root page in space $spaceId has section \"" . mcpSanitizeText($from, 100) . '". Sections here: ' . ($names ? json_encode($names, JSON_UNESCAPED_UNICODE) : 'none'));
+    }
+    if ($to === $from) throw new McpToolError('from and to are the same');
+
+    $merged = false;
+    foreach ($roots as $rid) {
+        if (!in_array($rid, $hits, true) && mcpPageSection($pages[$rid]) === $to) { $merged = true; break; }
+    }
+    foreach ($hits as $h) $pages[$h]['section'] = $to;
+    $changed = [];
+    if ($merged) {
+        $others = mcpSiblingIds($pages, $spaceId, null, $hits);
+        $changed = mcpPlacePages($pages, $spaceId, null, $hits, mcpSectionInsertIndex($pages, $others, $to));
+        foreach ($changed as $cid => $cp) $pages[$cid] = $cp;
+    }
+    mcpSavePagesById($pages, array_merge($hits, array_keys($changed)));
+    $out = ['spaceId' => $spaceId, 'from' => $from, 'to' => $to, 'pages' => $hits, 'merged' => $merged];
+    if ($w = mcpSectionWarning($pages, $spaceId)) $out['warning'] = $w;
+    return $out;
+});
+
+mcpTool('set_section', [
+    'title'       => 'Set section of pages',
+    'description' => 'Put root pages into a sidebar section (group), or remove them from their section with section = "". '
+                   . 'Pages that change section are placed, in the given order, behind the last page of the target section (or at the end if the section is new); pages already in it stay. '
+                   . 'Only root pages can have a section. updatedAt does not change.',
+    'inputSchema' => ['type' => 'object', 'properties' => [
+        'page_ids' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Root page ids'],
+        'section'  => ['type' => ['string', 'null'], 'description' => 'Section name; "" or null = no section'],
+    ], 'required' => ['page_ids', 'section'], 'additionalProperties' => false],
+    'annotations' => ['readOnlyHint' => false, 'destructiveHint' => false, 'idempotentHint' => true, 'openWorldHint' => false],
+], function (array $args): array {
+    $ids = [];
+    foreach (mcpArg($args, 'page_ids', 'array') as $v) {
+        if (!is_string($v) && !is_int($v)) throw new McpToolError('page_ids must be an array of page id strings');
+        $v = trim((string)$v);
+        if (!in_array($v, $ids, true)) $ids[] = $v;
+    }
+    if (!$ids) throw new McpToolError('page_ids must not be empty');
+    if (!array_key_exists('section', $args)) throw new McpToolError('Missing required parameter: section ("" removes the section)');
+    $section = mcpSectionValue(mcpArg($args, 'section', '?string', null));
+    $pages = mcpLoadAllPages();
+    $missing = array_values(array_filter($ids, function ($i) use ($pages) { return !isset($pages[$i]); }));
+    if ($missing) throw new McpToolError('Pages not found: ' . json_encode(array_map(function ($s) { return mcpSanitizeText($s, 60); }, $missing)));
+    $subs = array_values(array_filter($ids, function ($i) use ($pages) { return mcpParentOf($pages[$i]) !== null; }));
+    if ($subs) throw new McpToolError('Only root pages can have a section; these are subpages: ' . json_encode($subs) . '. Use move_page with parent_id null first.');
+
+    $moved = []; $unchanged = [];
+    foreach ($ids as $i) {
+        if (mcpPageSection($pages[$i]) === $section) $unchanged[] = $i; else $moved[] = $i;
+    }
+    $bySpace = [];
+    foreach ($moved as $i) $bySpace[(string)($pages[$i]['spaceId'] ?? '')][] = $i;
+    $changed = [];
+    foreach ($bySpace as $sid => $group) {
+        $spaceId = $pages[$group[0]]['spaceId'] ?? null;
+        foreach ($group as $i) $pages[$i]['section'] = $section;
+        $others = mcpSiblingIds($pages, $spaceId, null, $group);
+        foreach (mcpPlacePages($pages, $spaceId, null, $group, mcpSectionInsertIndex($pages, $others, $section)) as $cid => $cp) {
+            $pages[$cid] = $cp;
+            $changed[$cid] = $cp;
+        }
+    }
+    mcpSavePagesById($pages, array_merge($moved, array_keys($changed)));
+    $out = ['section' => $section, 'changed' => $moved, 'unchanged' => $unchanged,
+            'siblingsReordered' => array_values(array_diff(array_keys($changed), $moved))];
+    $warnings = [];
+    foreach (array_keys($bySpace) as $sid) {
+        if ($w = mcpSectionWarning($pages, $pages[$bySpace[$sid][0]]['spaceId'] ?? null)) $warnings[] = $w;
+    }
+    if ($warnings) $out['warning'] = implode(' ', $warnings);
+    return $out;
+});
 
 // ════════════════════════════════════════════
 //  5. RAW UPLOAD HOOK
