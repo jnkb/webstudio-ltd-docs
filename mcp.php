@@ -643,6 +643,112 @@ function mcpImageFiles(): array {
     return $files;
 }
 
+// ── Tree / text helpers (read tools, reusable by write tools) ──
+
+// Space by id or McpToolError listing the known spaces.
+function mcpRequireSpace(string $id): array {
+    $known = [];
+    foreach (mcpReadSpaces() as $s) {
+        if ((string)($s['id'] ?? '') === $id) return $s;
+        $known[] = ($s['id'] ?? '?') . ' (' . ($s['name'] ?? '') . ')';
+    }
+    throw new McpToolError("Unknown space_id: $id. Known spaces: " . ($known ? implode(', ', $known) : 'none'));
+}
+
+// Section group of a root page, like `p.section || ''` in renderNav(): null = no section.
+function mcpPageSection(array $p): ?string {
+    $s = $p['section'] ?? null;
+    return is_string($s) && $s !== '' ? $s : null;
+}
+
+// Sort a list of pages like the sidebar: by numeric order (pages without one
+// last, as in mcpReindexSiblings), ties keep their input order (stable on 7.4).
+function mcpSortPages(array $pages): array {
+    $pages = array_values($pages);
+    $keyed = [];
+    foreach ($pages as $i => $p) {
+        $keyed[] = [is_numeric($p['order'] ?? null) ? (float)$p['order'] : INF, $i, $p];
+    }
+    usort($keyed, function ($a, $b) { return [$a[0], $a[1]] <=> [$b[0], $b[1]]; });
+    return array_map(function ($k) { return $k[2]; }, $keyed);
+}
+
+// Direct children of a page (same space, parentId = $id), sidebar order.
+function mcpChildPages(array $pages, string $id): array {
+    $parent = $pages[$id] ?? null;
+    $spaceId = $parent['spaceId'] ?? null;
+    return mcpSortPages(array_filter($pages, function ($p) use ($id, $spaceId) {
+        return ($p['parentId'] ?? null) === $id && ($p['spaceId'] ?? null) === $spaceId;
+    }));
+}
+
+// Ancestors of a page, root first, as [{id, title}] (cycle-safe).
+function mcpBreadcrumb(array $pages, string $id): array {
+    $out = [];
+    $seen = [$id => true];
+    $cur = $pages[$id] ?? null;
+    while ($cur && is_string($cur['parentId'] ?? null) && $cur['parentId'] !== '') {
+        $pid = $cur['parentId'];
+        if (isset($seen[$pid]) || !isset($pages[$pid])) break;
+        $seen[$pid] = true;
+        $cur = $pages[$pid];
+        array_unshift($out, ['id' => $pid, 'title' => (string)($cur['title'] ?? '')]);
+    }
+    return $out;
+}
+
+// Inline HTML → plain text (tags removed, entities decoded, whitespace collapsed).
+function mcpPlainText(string $html): string {
+    $text = preg_replace('/<br\s*\/?>/i', ' ', $html) ?? '';
+    $text = html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    return trim(preg_replace('/\s+/u', ' ', $text) ?? '');
+}
+
+// Searchable plain text of EditorJS blocks: every string inside block data
+// except technical fields (URLs, icons, styles, mime types).
+function mcpBlocksPlainText(array $blocks): string {
+    $skip = ['url', 'embedUrl', 'src', 'mime', 'link', 'icon', 'style', 'type', 'alignment', 'filename', 'id'];
+    $parts = [];
+    $walk = function ($v) use (&$walk, &$parts, $skip) {
+        if (is_string($v)) { $t = mcpPlainText($v); if ($t !== '') $parts[] = $t; return; }
+        if (!is_array($v)) return;
+        foreach ($v as $k => $x) {
+            if (is_string($k) && in_array($k, $skip, true)) continue;
+            $walk($x);
+        }
+    };
+    foreach ($blocks as $b) {
+        if (is_array($b) && is_array($b['data'] ?? null)) $walk($b['data']);
+    }
+    return implode(' ', $parts);
+}
+
+function mcpLower(string $s): string {
+    return function_exists('mb_strtolower') ? mb_strtolower($s, 'UTF-8') : strtolower($s);
+}
+
+// Raw JSON text of every page file, keyed by page id (for usage searches).
+function mcpPageJsonRaw(): array {
+    $raw = [];
+    foreach (pageJsonFiles() as $file) {
+        $txt = @file_get_contents($file);
+        if (is_string($txt)) $raw[basename($file, '.json')] = $txt;
+    }
+    return $raw;
+}
+
+// Ids of pages whose JSON (content or cover) mentions an image file name.
+// Pass $raw from mcpPageJsonRaw() when checking several files.
+function mcpImageUsedBy(string $filename, ?array $raw = null): array {
+    if ($filename === '') return [];
+    $raw = $raw ?? mcpPageJsonRaw();
+    $ids = [];
+    foreach ($raw as $id => $txt) {
+        if (strpos($txt, $filename) !== false) $ids[] = (string)$id;
+    }
+    return $ids;
+}
+
 // ════════════════════════════════════════════
 //  3. TOOL REGISTRY
 // ════════════════════════════════════════════
@@ -720,6 +826,384 @@ mcpTool('get_site', [
         'uploadEndpoint' => "$base/mcp.php?upload=image&filename=<name>",
     ];
 });
+
+$MCP_RO = ['readOnlyHint' => true, 'destructiveHint' => false, 'idempotentHint' => true, 'openWorldHint' => false];
+
+mcpTool('list_pages', [
+    'title'       => 'List page tree',
+    'description' => 'Page tree per space, in sidebar order: root pages grouped into sections (section null = no section, groups in order of first appearance), subpages nested in children. Metadata only, no content (use get_page). '
+                   . 'include_drafts=false shows what the public sees (drafts and their subpages are left out). Pages the sidebar cannot show (unknown space, missing parent, cycle) are listed under "unreachable".',
+    'inputSchema' => ['type' => 'object', 'properties' => [
+        'space_id'       => ['type' => 'string', 'description' => 'Only this space (id from get_site). Default: all spaces.'],
+        'include_drafts' => ['type' => 'boolean', 'description' => 'Include draft pages (default true).', 'default' => true],
+    ], 'additionalProperties' => false],
+    'annotations' => $MCP_RO,
+], function (array $args): array {
+    $spaceFilter = mcpArg($args, 'space_id', 'string', '');
+    $includeDrafts = mcpArg($args, 'include_drafts', 'bool', true);
+    $spaces = $spaceFilter !== '' ? [mcpRequireSpace($spaceFilter)] : mcpReadSpaces();
+
+    $all = mcpLoadAllPages();
+    $pages = $includeDrafts ? $all : array_filter($all, function ($p) { return empty($p['draft']); });
+
+    // Group by "spaceId \0 parentId" (root = parentId null/'').
+    $groups = [];
+    foreach ($pages as $p) {
+        $pid = $p['parentId'] ?? null;
+        $key = (string)($p['spaceId'] ?? '') . "\0" . (is_string($pid) ? $pid : '');
+        $groups[$key][] = $p;
+    }
+    $visited = [];
+    $node = function (array $p) use (&$node, &$visited, $groups) {
+        $visited[$p['id']] = true;
+        $children = [];
+        foreach (mcpSortPages($groups[(string)($p['spaceId'] ?? '') . "\0" . $p['id']] ?? []) as $c) {
+            if (!isset($visited[$c['id']])) $children[] = $node($c);
+        }
+        return [
+            'id'        => $p['id'],
+            'title'     => (string)($p['title'] ?? ''),
+            'icon'      => (string)($p['icon'] ?? ''),
+            'subtitle'  => (string)($p['subtitle'] ?? ''),
+            'draft'     => !empty($p['draft']),
+            'order'     => $p['order'] ?? null,
+            'updatedAt' => $p['updatedAt'] ?? null,
+            'url'       => mcpPageUrls($p['id'])['view'],
+            'children'  => $children,
+        ];
+    };
+
+    $out = [];
+    foreach ($spaces as $s) {
+        $sid = (string)($s['id'] ?? '');
+        $sections = [];
+        foreach (mcpSortPages($groups[$sid . "\0"] ?? []) as $root) {
+            $sec = mcpPageSection($root);
+            $k = $sec === null ? "\0" : $sec;
+            if (!isset($sections[$k])) $sections[$k] = ['section' => $sec, 'pages' => []];
+            $sections[$k]['pages'][] = $node($root);
+        }
+        $count = count(array_filter($pages, function ($p) use ($sid) { return (string)($p['spaceId'] ?? '') === $sid; }));
+        $out[] = [
+            'space'     => ['id' => $sid, 'name' => (string)($s['name'] ?? ''), 'icon' => (string)($s['icon'] ?? '')],
+            'pageCount' => $count,
+            'sections'  => array_values($sections),
+        ];
+    }
+
+    // Pages in scope that the sidebar never reaches.
+    $spaceIds = array_map(function ($s) { return (string)($s['id'] ?? ''); }, mcpReadSpaces());
+    $unreachable = [];
+    foreach ($pages as $id => $p) {
+        $sid = (string)($p['spaceId'] ?? '');
+        if (isset($visited[$id]) || ($spaceFilter !== '' && $sid !== $spaceFilter)) continue;
+        $pid = $p['parentId'] ?? null;
+        $hasParent = is_string($pid) && $pid !== '';
+        if (!$includeDrafts && $hasParent) {
+            // Hidden because an ancestor is a draft → intentionally left out.
+            $hidden = false;
+            $seen = [$id => true];
+            for ($cur = $all[$pid] ?? null; $cur && !isset($seen[$cur['id']]); $cur = $all[$cur['parentId'] ?? ''] ?? null) {
+                $seen[$cur['id']] = true;
+                if (!empty($cur['draft'])) { $hidden = true; break; }
+            }
+            if ($hidden) continue;
+        }
+        if (!in_array($sid, $spaceIds, true))              $reason = 'unknown space';
+        elseif ($hasParent && !isset($all[$pid]))          $reason = 'parent not found';
+        elseif ($hasParent && (string)($all[$pid]['spaceId'] ?? '') !== $sid) $reason = 'parent is in another space';
+        else                                               $reason = 'parent cycle';
+        $unreachable[] = ['id' => $id, 'title' => (string)($p['title'] ?? ''), 'spaceId' => $p['spaceId'] ?? null,
+                          'parentId' => $hasParent ? $pid : null, 'reason' => $reason];
+    }
+
+    $result = ['spaces' => $out];
+    if ($unreachable) $result['unreachable'] = $unreachable;
+    return $result;
+});
+
+mcpTool('get_page', [
+    'title'       => 'Get page',
+    'description' => 'One page with all metadata (title, subtitle, icon, section, parentId, order, cover, draft, updatedAt) and its EditorJS content. '
+                   . 'Each block carries an extra "index" (its position, for edit_blocks; ignored when writing). Also returns children (ids, in order), breadcrumb (ancestors, root first) and urls. '
+                   . 'Pass updatedAt as if_updated_at when you write the page back.',
+    'inputSchema' => ['type' => 'object', 'properties' => [
+        'id' => ['type' => 'string', 'description' => 'Page id (from list_pages or search_pages)'],
+    ], 'required' => ['id'], 'additionalProperties' => false],
+    'annotations' => $MCP_RO,
+], function (array $args): array {
+    $id = trim(mcpArg($args, 'id', 'string'));
+    $all = mcpLoadAllPages();
+    $page = $all[$id] ?? null;
+    if ($page === null) throw new McpToolError("Page not found: $id. Use list_pages or search_pages to find page ids.");
+
+    $out = [];
+    foreach (MCP_PAGE_KEYS as $k) {
+        if ($k !== 'content') $out[$k] = $page[$k] ?? null;
+    }
+    foreach ($page as $k => $v) {
+        if (!array_key_exists($k, $out) && $k !== 'content' && $k !== '' && $k[0] !== '_' && !in_array($k, MCP_PAGE_TRANSIENT_KEYS, true)) $out[$k] = $v;
+    }
+    $out['draft'] = !empty($page['draft']);
+
+    $content = is_array($page['content'] ?? null) ? $page['content'] : [];
+    $blocks = [];
+    foreach (array_values(is_array($content['blocks'] ?? null) ? $content['blocks'] : []) as $i => $b) {
+        $blocks[] = is_array($b) ? array_merge(['index' => $i], array_diff_key($b, ['index' => 1])) : ['index' => $i, 'type' => null];
+    }
+    $out['content'] = ['time' => $content['time'] ?? null, 'blocks' => $blocks];
+    $out['children'] = array_map(function ($c) { return $c['id']; }, mcpChildPages($all, $page['id']));
+    $out['breadcrumb'] = mcpBreadcrumb($all, $page['id']);
+    $out['urls'] = mcpPageUrls($page['id']);
+    return $out;
+});
+
+mcpTool('search_pages', [
+    'title'       => 'Search pages',
+    'description' => 'Full-text search over page titles, subtitles, sections and block text (case-insensitive; several words must all match). '
+                   . 'Returns {id, title, space, score, snippet}, pages with a title match first. Drafts are included and flagged.',
+    'inputSchema' => ['type' => 'object', 'properties' => [
+        'query'    => ['type' => 'string', 'description' => 'Search words'],
+        'space_id' => ['type' => 'string', 'description' => 'Only search this space'],
+        'limit'    => ['type' => 'integer', 'description' => 'Max. results (1–100, default 20)', 'default' => 20, 'minimum' => 1, 'maximum' => 100],
+    ], 'required' => ['query'], 'additionalProperties' => false],
+    'annotations' => $MCP_RO,
+], function (array $args): array {
+    $query = mcpSubstr(trim(preg_replace('/[\x00-\x1F\x7F]+/', ' ', mcpArg($args, 'query', 'string')) ?? ''), 0, 200);
+    $spaceFilter = mcpArg($args, 'space_id', 'string', '');
+    $limit = max(1, min(100, mcpArg($args, 'limit', 'int', 20)));
+    $terms = array_values(array_unique(array_filter(preg_split('/\s+/u', mcpLower($query)) ?: [], 'strlen')));
+    if (!$terms) throw new McpToolError('query must contain at least one word');
+    $terms = array_slice($terms, 0, 10);
+    if ($spaceFilter !== '') mcpRequireSpace($spaceFilter);
+
+    $spaceNames = [];
+    foreach (mcpReadSpaces() as $s) $spaceNames[(string)($s['id'] ?? '')] = (string)($s['name'] ?? '');
+    $count = function (string $hay, string $needle): int {
+        return function_exists('mb_substr_count') ? mb_substr_count($hay, $needle, 'UTF-8') : substr_count($hay, $needle);
+    };
+    $pos = function (string $hay, string $needle) {
+        return function_exists('mb_stripos') ? mb_stripos($hay, $needle, 0, 'UTF-8') : stripos($hay, $needle);
+    };
+
+    $hits = [];
+    foreach (mcpLoadAllPages() as $id => $p) {
+        $sid = (string)($p['spaceId'] ?? '');
+        if ($spaceFilter !== '' && $sid !== $spaceFilter) continue;
+        $title    = mcpPlainText((string)($p['title'] ?? ''));
+        $subtitle = mcpPlainText((string)($p['subtitle'] ?? ''));
+        $section  = mcpPlainText((string)(mcpPageSection($p) ?? ''));
+        $body     = mcpBlocksPlainText(is_array($p['content']['blocks'] ?? null) ? $p['content']['blocks'] : []);
+        $lt = mcpLower($title); $ls = mcpLower($subtitle); $lsec = mcpLower($section); $lb = mcpLower($body);
+
+        $score = 0; $titleHit = false; $all = true;
+        foreach ($terms as $t) {
+            $s = 0;
+            if (strpos($lt, $t) !== false)   { $s += 10; $titleHit = true; if (strpos($lt, $t) === 0) $s += 2; }
+            if (strpos($ls, $t) !== false)   $s += 4;
+            if (strpos($lsec, $t) !== false) $s += 3;
+            $s += min(5, $count($lb, $t));
+            if ($s === 0) { $all = false; break; }
+            $score += $s;
+        }
+        if (!$all) continue;
+        if ($lt === mcpLower($query)) $score += 20;
+
+        // Snippet: around the first body hit, else subtitle, else start of body.
+        $snippet = '';
+        $first = null;
+        foreach ($terms as $t) {
+            $p0 = $pos($body, $t);
+            if ($p0 !== false && ($first === null || $p0 < $first)) $first = $p0;
+        }
+        if ($first !== null) {
+            $start = max(0, $first - 60);
+            $snippet = ($start > 0 ? '…' : '') . mcpSubstr($body, $start, 180);
+            if ($start + 180 < mcpStrlen($body)) $snippet .= '…';
+        } else {
+            $snippet = $subtitle !== '' ? $subtitle : mcpSubstr($body, 0, 180) . (mcpStrlen($body) > 180 ? '…' : '');
+        }
+
+        $hit = ['id' => $id, 'title' => $title, 'space' => ['id' => $sid, 'name' => $spaceNames[$sid] ?? ''],
+                'score' => $score, 'snippet' => $snippet];
+        if (!empty($p['draft'])) $hit['draft'] = true;
+        $hits[] = [$titleHit ? 1 : 0, $hit];
+    }
+    usort($hits, function ($a, $b) {
+        return [$b[0], $b[1]['score'], $a[1]['title']] <=> [$a[0], $a[1]['score'], $b[1]['title']];
+    });
+    return [
+        'query'   => $query,
+        'total'   => count($hits),
+        'results' => array_map(function ($h) { return $h[1]; }, array_slice($hits, 0, $limit)),
+    ];
+});
+
+mcpTool('get_content_guide', [
+    'title'       => 'Get content guide',
+    'description' => 'Reference for writing page content: every EditorJS block type with its data fields, the allowed inline HTML, links between pages, images, covers, sections and nesting, with examples. Read this before create_page, update_page or edit_blocks.',
+    'inputSchema' => ['type' => 'object', 'properties' => [], 'additionalProperties' => false],
+    'annotations' => $MCP_RO,
+], function (array $args): string {
+    return mcpContentGuide();
+});
+
+mcpTool('list_images', [
+    'title'       => 'List images',
+    'description' => 'Uploaded images (newest first) with their root-relative url (use it in image blocks and covers), size, modification time and the ids of pages that use them (content or cover).',
+    'inputSchema' => ['type' => 'object', 'properties' => [], 'additionalProperties' => false],
+    'annotations' => $MCP_RO,
+], function (array $args): array {
+    $raw = mcpPageJsonRaw();
+    $base = mcpBasePath();
+    $images = [];
+    foreach (mcpImageFiles() as $f) {
+        $name = basename($f);
+        $mtime = (int)@filemtime($f);
+        $images[] = [
+            'filename'   => $name,
+            'url'        => $base . '/images/' . rawurlencode($name),
+            'bytes'      => (int)@filesize($f),
+            'modifiedAt' => $mtime ? date('c', $mtime) : null,
+            'usedBy'     => mcpImageUsedBy($name, $raw),
+        ];
+    }
+    usort($images, function ($a, $b) { return [$b['modifiedAt'], $a['filename']] <=> [$a['modifiedAt'], $b['filename']]; });
+    return ['count' => count($images), 'images' => $images];
+});
+
+mcpTool('get_settings', [
+    'title'       => 'Get site settings',
+    'description' => 'Site settings: siteName, tabTitle, accentColor, theme, lang, footerText, footerTailHtml, hideSingleSpaceTabs, shareSectionEnabled, translateEnabled, plus hasLogo / hasFavicon (the images themselves are not returned). Missing values are null.',
+    'inputSchema' => ['type' => 'object', 'properties' => [], 'additionalProperties' => false],
+    'annotations' => $MCP_RO,
+], function (array $args): array {
+    $s = mcpReadSettings();
+    $out = [];
+    foreach (['siteName', 'tabTitle', 'accentColor', 'theme', 'lang', 'footerText', 'footerTailHtml'] as $k) {
+        $out[$k] = array_key_exists($k, $s) ? $s[$k] : null;
+    }
+    // Effective values, same defaults as shared.js (isHideSingleSpaceTabsEnabled() etc.).
+    $out['hideSingleSpaceTabs'] = ($s['hideSingleSpaceTabs'] ?? false) === true;
+    $out['shareSectionEnabled'] = ($s['shareSectionEnabled'] ?? true) !== false;
+    $out['translateEnabled']    = ($s['translateEnabled'] ?? true) !== false;
+    $out['hasLogo']    = is_string($s['logoDataUrl'] ?? null) && $s['logoDataUrl'] !== '';
+    $out['hasFavicon'] = is_string($s['faviconDataUrl'] ?? null) && $s['faviconDataUrl'] !== '';
+    return $out;
+});
+
+// Text of get_content_guide. Must match mcpNormalizeBlockData() above.
+function mcpContentGuide(): string {
+    return <<<'GUIDE'
+# Writing content for Webstudio Docs
+
+Page content is a JSON array of EditorJS blocks: [{"type": "...", "data": {...}}, ...].
+Not Markdown: "**bold**" or "# Title" show up literally. The page title, subtitle, icon
+and cover are page metadata (shown above the content) - do not repeat the title as a
+heading block. Start headings at level 2.
+
+Every write is validated and sanitized. Unknown block types are rejected; unknown data
+fields are dropped; missing fields get defaults. Blocks may keep an "id" (from
+get_page, [A-Za-z0-9_-]{1,40}); omit it for new blocks. The "index" field that
+get_page adds is ignored on write.
+
+## Block types
+
+| type | data | text format |
+|---|---|---|
+| paragraph | {text} | inline HTML |
+| header | {text, level: 1-3 (default 2)} | inline HTML |
+| list | {style: "unordered"/"ordered", items: [{content, items: [...nested, max 10 levels]}]} - an item may also be a plain string | content: inline HTML |
+| checklist | {items: [{text, checked: bool}]} | text: inline HTML |
+| quote | {text, caption, alignment?: "left"/"center"} | inline HTML |
+| code | {code} - language is detected automatically | raw text, stored as is (no escaping needed) |
+| delimiter | {style: "stars"/"line"/"dashed"/"dots" (default stars)} | - |
+| table | {withHeadings: bool (first row = header), content: [[cell, ...], ...]} - rows are padded to equal length | cells: inline HTML, "\n" becomes <br> |
+| image | {url, caption, stretched, withBorder, withBackground} (booleans default false) | caption: plain text, max 500 |
+| warning | callout: {type: "info"/"tip"/"warning"/"danger" (default info), title, message} | inline HTML |
+| timeline | {numbered: bool, items: [{date, title, desc}]} | plain text; "\n" in desc = line break |
+| collapse | {title, body, open: bool} - expandable section | plain text; "\n" in body = line break |
+| video | {embedUrl} YouTube/Vimeo (watch links like youtube.com/watch?v=… are converted), or {src, filename, mime} for an uploaded video (/videos/vid_….mp4, mime video/mp4, video/webm or video/ogg) | - |
+| cards | {cols: 2/3/4 (default 3), cards: [{icon, title, desc, link}]} - icon: Font Awesome name like "fa-rocket"; link: a page id or an https:// URL (optional) | plain text |
+
+"Plain text" fields: tags are removed, write text only.
+
+## Inline HTML (fields marked "inline HTML")
+
+Allowed: <b> <strong> <i> <em> <u> <s> <br>, <mark class="cdx-marker"> (highlight),
+<code class="inline-code"> (inline code), <a href target rel data-page-id>.
+Any other tag is escaped and shows up as text (no <p>, <div>, <span>, <img>, <h1>);
+other attributes (style, on*, …) are dropped. Write literal & < > as &amp; &lt; &gt;.
+Link URLs must be http(s), mailto, relative or #anchor; anything else is removed.
+
+- Link to another page: <a href="?page=PAGE_ID" data-page-id="PAGE_ID">Label</a>
+- External link: <a href="https://example.com" target="_blank" rel="noopener">Label</a>
+
+## Images and covers
+
+1. Upload first (upload_image, or the raw upload endpoint from get_site with curl).
+2. Use the returned root-relative url, e.g. "/images/img_6720….png", in an image block
+   or cover. External http(s) image URLs work too. list_images shows existing images.
+
+Page cover (create_page / update_page "cover"; null removes it):
+- {"type": "color", "value": "#7c3aed"} or {"type": "color", "value": "linear-gradient(135deg,#f97316,#7c3aed)"}
+- {"type": "image", "value": "/images/img_….png", "fit": "cover"/"contain", "position": "50% 50%"}
+
+## Structure: spaces, sections, nesting, order
+
+- Spaces are the top-level tabs. Every page belongs to one space (space_id).
+- Pages form a tree: parent_id = null for root pages, otherwise the parent page id.
+- Sections are named groups of ROOT pages in the sidebar (shown as a label above the
+  group). Subpages never have a section. Groups appear in the order of their first page;
+  a new root page with an existing section is placed behind that section's last page.
+- Siblings are ordered by "order" (0..n-1). Use position on create/move, or reorder_pages.
+- draft: true hides a page (and its subpages) from the public viewer.
+- Page ids: lowercase a-z, 0-9, "-", "_" (max 60), derived from the title if not given.
+  They are part of the URL: index.php?page=ID.
+
+## Writing tools
+
+- create_page: new page with metadata and blocks.
+- update_page: metadata and/or "blocks" (replaces the whole content). Pass if_updated_at.
+- edit_blocks: insert / replace / delete / move single blocks by index (see get_page).
+- move_page, reorder_pages, set_section, rename_section: tree and grouping.
+
+## Example 1: heading, paragraph with links, nested list, code
+
+[
+  {"type": "header", "data": {"text": "Installation", "level": 2}},
+  {"type": "paragraph", "data": {"text": "Read <a href=\"?page=welcome\" data-page-id=\"welcome\">Welcome</a> first. You need <b>PHP 7.4+</b>, see <a href=\"https://www.php.net\" target=\"_blank\" rel=\"noopener\">php.net</a>."}},
+  {"type": "list", "data": {"style": "ordered", "items": [
+    {"content": "Upload the files", "items": []},
+    {"content": "Make <code class=\"inline-code\">data/</code> writable", "items": [
+      {"content": "Apache: <mark class=\"cdx-marker\">chown www-data</mark>", "items": []}
+    ]}
+  ]}},
+  {"type": "code", "data": {"code": "chmod -R 775 data images"}}
+]
+
+## Example 2: callout, table, collapse
+
+[
+  {"type": "warning", "data": {"type": "tip", "title": "Good to know", "message": "Drafts are only visible in the editor."}},
+  {"type": "table", "data": {"withHeadings": true, "content": [
+    ["Setting", "Default"],
+    ["theme", "<code class=\"inline-code\">dark</code>"]
+  ]}},
+  {"type": "collapse", "data": {"title": "Troubleshooting", "body": "Check file permissions.\nThen reload the page.", "open": false}}
+]
+
+## Example 3: image after upload, cards linking to pages
+
+[
+  {"type": "image", "data": {"url": "/images/img_6720a1b2c3d4e5.12345678.png", "caption": "The settings dialog", "withBorder": true}},
+  {"type": "cards", "data": {"cols": 2, "cards": [
+    {"icon": "fa-rocket", "title": "Quick start", "desc": "Set up in 5 minutes", "link": "installation"},
+    {"icon": "fa-book", "title": "PHP manual", "desc": "External reference", "link": "https://www.php.net/manual/"}
+  ]}}
+]
+GUIDE;
+}
 
 // ════════════════════════════════════════════
 //  5. RAW UPLOAD HOOK
