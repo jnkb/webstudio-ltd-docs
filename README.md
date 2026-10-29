@@ -412,6 +412,7 @@ The endpoint takes the file itself as the request body (`POST` or `PUT`, not a m
 - **Only a SHA-256 hash is stored** in `data/mcp_tokens.json` (protected like the rest of `data/`). The plain token cannot be recovered — create a new one if it gets lost.
 - **Everything an agent writes is sanitized on the server**: inline HTML is reduced to a whitelist of tags and attributes, links are limited to safe schemes, URLs are percent-encoded so they cannot break out of HTML attributes, video embeds only take http(s) URLs (shown in an iframe, as in the editor), and icons and cover values are validated. A prompt-injected agent cannot plant scripts in your public docs or in the editor.
 - The bearer token replaces the optional access gate for `mcp.php`; agents do not need the access cookie.
+- **Drafts stay private** — `draft: true` hides the page and all its subpages from the public (sidebar, direct URL, API, link previews). Logged-in editors still see them.
 
 ### Known limitations
 
@@ -419,8 +420,6 @@ The endpoint takes the file itself as the request body (`POST` or `PUT`, not a m
 - **No Markdown via MCP** — agents read and write EditorJS blocks. The Markdown import/export in the editor runs in the browser only.
 - **No token scopes and no OAuth** — every token has full rights. Clients that try OAuth discovery after a `401` fail with their own error message; in that case, check the token.
 - `footerTailHtml` and `footerText` written through MCP are limited to the same whitelist the footer uses in the browser: `a`, `b`, `strong`, `i`, `em`, `u`, `span`, `small`, `code`, `br`, with `title` on all of them and `href`/`target`/`rel` on links. Other tags are stored as visible text, and links are limited to safe schemes.
-- **Drafts** — `draft: true` hides the page and all its subpages from the public (sidebar, direct URL, API). Logged-in editors still see them.
-
 ### Server requirements
 
 - **Authorization header** — on PHP-FPM / CGI hosts Apache drops the `Authorization` header unless it is passed through. The bundled `.htaccess` already does this (`RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]`); keep it when you customise the file. Nginx passes the header to PHP-FPM by default.
