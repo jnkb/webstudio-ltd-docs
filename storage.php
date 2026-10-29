@@ -145,6 +145,133 @@ function detectUploadedVideoMime($path) {
     return null;
 }
 
+// ── Image integrity ─────────────────────────
+// Magic bytes only say what a file claims to be. verifyUploadedImage() checks
+// that a PNG/JPEG/GIF/WebP is complete and decodable, so truncated or garbled
+// data (e.g. base64 typed by hand) is refused instead of stored as a broken
+// image. Steps: getimagesize() must report width/height > 0 and the same
+// type; a cheap structural check catches truncation that decoders tolerate
+// (GD accepts cut-off JPEGs and GIFs); finally GD decodes the whole image when
+// it supports the type and the bitmap fits into memory.
+defined('IMAGE_DECODE_MAX_PIXELS') || define('IMAGE_DECODE_MAX_PIXELS', 50000000);
+
+// Returns ['width' => int, 'height' => int] for an intact image of type $mime
+// (image/png, image/jpeg, image/gif, image/webp), otherwise null.
+function verifyUploadedImage($path, $mime) {
+    static $types = [
+        'image/png'  => [IMAGETYPE_PNG,  'IMG_PNG'],
+        'image/jpeg' => [IMAGETYPE_JPEG, 'IMG_JPG'],
+        'image/gif'  => [IMAGETYPE_GIF,  'IMG_GIF'],
+        'image/webp' => [IMAGETYPE_WEBP, 'IMG_WEBP'],
+    ];
+    if (!isset($types[$mime]) || !is_string($path) || !is_file($path) || !function_exists('getimagesize')) return null;
+    $info = @getimagesize($path);
+    if (!is_array($info) || (int)$info[0] <= 0 || (int)$info[1] <= 0 || (int)$info[2] !== $types[$mime][0]) return null;
+    $width = (int)$info[0];
+    $height = (int)$info[1];
+
+    $data = @file_get_contents($path);
+    if (!is_string($data) || !imageDataLooksComplete($data, $mime)) return null;
+
+    // Full decode with GD. Skipped when GD lacks the type, for animated WebP
+    // (GD cannot read it), and for huge bitmaps that could exhaust memory
+    // (GD needs ~4-5 bytes per pixel); getimagesize + structure must do then.
+    $flag = $types[$mime][1];
+    $pixels = $width * $height;
+    $animatedWebp = $mime === 'image/webp' && substr($data, 12, 4) === 'VP8X' && (ord($data[20] ?? "\0") & 0x02);
+    if (function_exists('imagecreatefromstring') && function_exists('imagetypes') && defined($flag)
+        && (imagetypes() & constant($flag)) && !$animatedWebp && $pixels <= IMAGE_DECODE_MAX_PIXELS
+        && imageDecodeFitsMemory($pixels * 5 + strlen($data) + 4 * 1024 * 1024)) {
+        $img = @imagecreatefromstring($data);
+        if ($img === false) return null;
+        unset($img);
+    }
+    return ['width' => $width, 'height' => $height];
+}
+
+// Structural completeness checks that need no decoder.
+function imageDataLooksComplete($data, $mime) {
+    $n = strlen($data);
+    switch ($mime) {
+        case 'image/png':
+            // Ends with the IEND chunk (type + its fixed CRC); trailing bytes are tolerated.
+            return strpos($data, "IEND\xAE\x42\x60\x82", 33) !== false;
+        case 'image/webp':
+            // RIFF size covers the whole file: a cut-off file is shorter.
+            if ($n < 12) return false;
+            $riff = unpack('V', substr($data, 4, 4))[1];
+            return $riff + 8 <= $n;
+        case 'image/jpeg':
+            // Walk the marker segments up to the first scan (SOS), then the
+            // end-of-image marker must follow. Inside scans 0xFF is byte-stuffed,
+            // so FF D9 there is the real EOI (EXIF thumbnails sit before SOS).
+            $p = 2;
+            while ($p + 4 <= $n) {
+                if ($data[$p] !== "\xFF") return false;
+                $m = ord($data[$p + 1]);
+                if ($m === 0xFF) { $p++; continue; }               // fill byte
+                if ($m === 0xD8 || $m === 0x01 || ($m >= 0xD0 && $m <= 0xD7)) { $p += 2; continue; }
+                if ($m === 0xD9) return false;                       // EOI before any scan
+                $len = unpack('n', substr($data, $p + 2, 2))[1];
+                if ($len < 2 || $p + 2 + $len > $n) return false;
+                if ($m === 0xDA) return strpos($data, "\xFF\xD9", $p + 2 + $len) !== false;
+                $p += 2 + $len;
+            }
+            return false;
+        case 'image/gif':
+            // Walk header, color tables, extensions and image data sub-blocks.
+            // Ending right after a complete block without the 0x3B trailer is
+            // tolerated (browsers show such files); ending mid-block is not.
+            if ($n < 13) return false;
+            $p = 13;
+            $flags = ord($data[10]);
+            if ($flags & 0x80) $p += 3 * (1 << (($flags & 7) + 1));
+            $images = 0;
+            $skipSubBlocks = function () use ($data, $n, &$p) {
+                while (true) {
+                    if ($p >= $n) return false;
+                    $len = ord($data[$p++]);
+                    if ($len === 0) return true;
+                    $p += $len;
+                }
+            };
+            while (true) {
+                if ($p >= $n) return $p === $n && $images > 0;
+                $b = ord($data[$p++]);
+                if ($b === 0x3B) return $images > 0;
+                if ($b === 0x21) {
+                    $p++; // extension label
+                    if (!$skipSubBlocks()) return false;
+                } elseif ($b === 0x2C) {
+                    if ($p + 10 > $n) return false;
+                    $f = ord($data[$p + 8]);
+                    $p += 9;
+                    if ($f & 0x80) $p += 3 * (1 << (($f & 7) + 1));
+                    $p++; // LZW minimum code size
+                    if (!$skipSubBlocks()) return false;
+                    $images++;
+                } else {
+                    return false;
+                }
+            }
+    }
+    return false;
+}
+
+// True if $bytes more can be allocated without hitting memory_limit.
+function imageDecodeFitsMemory($bytes) {
+    $limit = trim((string)ini_get('memory_limit'));
+    if ($limit === '' || $limit === '-1') return true;
+    $num = (float)$limit;
+    switch (strtolower(substr($limit, -1))) {
+        case 'g': $num *= 1024;
+        case 'm': $num *= 1024;
+        case 'k': $num *= 1024;
+    }
+    if ($num <= 0) return true;
+    return memory_get_usage(true) + $bytes < $num * 0.9;
+}
+
 function pageFilePath($id) {
     return PAGES_DIR . "/{$id}.json";
 }

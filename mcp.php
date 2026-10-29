@@ -1100,6 +1100,8 @@ const MCP_IMAGE_MAX_BYTES = 10 * 1024 * 1024; // like upload_image in api.php
 // No SVG: it can carry scripts and the viewer serves images/ directly.
 const MCP_IMAGE_TYPES = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp'];
 const MCP_VIDEO_TYPES = ['video/mp4' => 'mp4', 'video/webm' => 'webm', 'video/ogg' => 'ogg'];
+// verifyUploadedImage() (storage.php) failed: the bytes are not a complete image.
+const MCP_CORRUPT_IMAGE_MSG = 'The image data is corrupt or truncated';
 const MCP_DOWNLOAD_TIMEOUT       = 20; // seconds, all hops together
 const MCP_DOWNLOAD_MAX_REDIRECTS = 3;
 // Interface languages = TRANSLATIONS / LANG_LOCALES keys in assets/i18n.js;
@@ -1432,6 +1434,8 @@ function mcpStoreUpload(string $tmp, string $kind, string $originalName = ''): a
         if ($mime === 'image/svg+xml') throw new McpToolError('SVG images are not allowed. Upload PNG, JPEG, GIF or WebP.', 415);
         if (!isset(MCP_IMAGE_TYPES[$mime])) throw new McpToolError('File type not allowed' . ($mime ? " ($mime)" : '') . ': upload PNG, JPEG, GIF or WebP', 415);
         if ($bytes > MCP_IMAGE_MAX_BYTES) throw new McpToolError('File too large (max ' . mcpFormatBytes(MCP_IMAGE_MAX_BYTES) . ')', 413);
+        $size = verifyUploadedImage($tmp, $mime);
+        if ($size === null) throw new McpToolError(MCP_CORRUPT_IMAGE_MSG, 400);
         $dir = IMAGES_DIR; $sub = 'images';
         $name = uniqid('img_', true) . '.' . MCP_IMAGE_TYPES[$mime];
     } else {
@@ -1449,6 +1453,7 @@ function mcpStoreUpload(string $tmp, string $kind, string $originalName = ''): a
 
     $url = mcpBasePath() . "/$sub/$name";
     $out = ['url' => $url, 'absoluteUrl' => mcpBaseUrl() . "/$sub/$name", 'filename' => $name, 'mime' => $mime, 'bytes' => $bytes];
+    if ($kind === 'image') $out += $size;
     if ($originalName !== '') $out['originalName'] = $originalName;
     $out['block'] = $kind === 'image'
         ? ['type' => 'image', 'data' => ['url' => $url, 'caption' => '']]

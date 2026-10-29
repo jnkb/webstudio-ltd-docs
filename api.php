@@ -398,6 +398,8 @@ case 'upload_image':
 
     // Max 10 MB
     if ($file['size'] > 10 * 1024 * 1024) err('File too large (max 10 MB)');
+    // Truncated or garbled raster images are refused (shared check in storage.php)
+    if ($mime !== 'image/svg+xml' && verifyUploadedImage($tmpName, $mime) === null) err('The image data is corrupt or truncated');
 
     $ext = [
         'image/jpeg' => 'jpg', 'image/png' => 'png',
