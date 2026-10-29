@@ -1007,6 +1007,235 @@ function mcpRewritePageLinks($value, string $old, ?string $new, int &$count) {
     return $value;
 }
 
+// ── Spaces, settings and media helpers (AP6) ──
+
+const MCP_IMAGE_MAX_BYTES = 10 * 1024 * 1024; // like upload_image in api.php
+// No SVG: it can carry scripts and the viewer serves images/ directly.
+const MCP_IMAGE_TYPES = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp'];
+const MCP_VIDEO_TYPES = ['video/mp4' => 'mp4', 'video/webm' => 'webm', 'video/ogg' => 'ogg'];
+const MCP_DOWNLOAD_TIMEOUT       = 20; // seconds, all hops together
+const MCP_DOWNLOAD_MAX_REDIRECTS = 3;
+// Interface languages = TRANSLATIONS / LANG_LOCALES keys in assets/i18n.js;
+// themes = the two values toggleTheme() in editor.php switches between.
+const MCP_LANGS  = ['de', 'en', 'sk'];
+const MCP_THEMES = ['dark', 'light'];
+
+// Read a JSON file that is about to be rewritten. A file that exists but does
+// not parse is an error instead of [] (writing would wipe it).
+function mcpReadJsonForWrite(string $path): array {
+    if (!file_exists($path)) return [];
+    $data = jsonRead($path);
+    if (!is_array($data)) throw new McpToolError(basename($path) . ' on the server is not valid JSON; fix it before changing it via MCP', 500);
+    return $data;
+}
+
+function mcpWriteSpaces(array $spaces): void {
+    if (!jsonWrite(DATA_DIR . '/spaces.json', array_values($spaces))) throw new McpToolError('Failed to write spaces.json', 500);
+}
+
+// Spaces in tab order as returned by the space tools.
+function mcpSpaceList(array $spaces): array {
+    return array_map(function ($s, $i) {
+        return ['id' => (string)($s['id'] ?? ''), 'name' => (string)($s['name'] ?? ''), 'icon' => (string)($s['icon'] ?? ''), 'position' => $i];
+    }, array_values($spaces), array_keys(array_values($spaces)));
+}
+
+// Index of a space in $spaces, or McpToolError listing the known spaces.
+function mcpSpaceIndex(array $spaces, string $id): int {
+    foreach (array_values($spaces) as $i => $s) {
+        if ((string)($s['id'] ?? '') === $id) return $i;
+    }
+    mcpRequireSpace($id); // throws with the list of known spaces
+    throw new McpToolError("Unknown space_id: $id");
+}
+
+function mcpSpaceName($v): string {
+    if (!is_string($v)) throw new McpToolError('name must be a string');
+    $name = mcpSanitizeText($v, 80);
+    if ($name === '') throw new McpToolError('name must not be empty');
+    return $name;
+}
+
+// New space id like uid() in editor.php: "_" + 8 characters [a-z0-9].
+function mcpNewSpaceId(array $spaces): string {
+    $taken = array_flip(array_map(function ($s) { return (string)($s['id'] ?? ''); }, $spaces));
+    $chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    do {
+        $id = '_';
+        for ($i = 0; $i < 8; $i++) $id .= $chars[random_int(0, 35)];
+    } while (isset($taken[$id]));
+    return $id;
+}
+
+// get_settings output: known keys (missing = null), effective booleans with
+// the shared.js defaults, hasLogo/hasFavicon instead of the data URLs.
+function mcpSettingsPublic(array $s): array {
+    $out = [];
+    foreach (['siteName', 'tabTitle', 'accentColor', 'theme', 'lang', 'footerText', 'footerTailHtml'] as $k) {
+        $out[$k] = array_key_exists($k, $s) ? $s[$k] : null;
+    }
+    // Same defaults as isHideSingleSpaceTabsEnabled() etc. in shared.js.
+    $out['hideSingleSpaceTabs'] = ($s['hideSingleSpaceTabs'] ?? false) === true;
+    $out['shareSectionEnabled'] = ($s['shareSectionEnabled'] ?? true) !== false;
+    $out['translateEnabled']    = ($s['translateEnabled'] ?? true) !== false;
+    $out['hasLogo']    = is_string($s['logoDataUrl'] ?? null) && $s['logoDataUrl'] !== '';
+    $out['hasFavicon'] = is_string($s['faviconDataUrl'] ?? null) && $s['faviconDataUrl'] !== '';
+    return $out;
+}
+
+function mcpFormatBytes(int $n): string {
+    if ($n >= 1024 * 1024 * 1024) return round($n / (1024 * 1024 * 1024), 1) . ' GB';
+    if ($n >= 1024 * 1024) return round($n / (1024 * 1024), 1) . ' MB';
+    return round($n / 1024) . ' KB';
+}
+
+// Original file name sent by the agent: informational only (stored files get
+// a generated name), reduced to a plain base name.
+function mcpOriginalName($v): string {
+    $v = str_replace('\\', '/', is_string($v) ? $v : '');
+    return mcpSanitizeText(basename($v), 200);
+}
+
+// Fresh temp file path in the protected tmp-uploads dir (caller deletes it;
+// leftover *.part files are also swept by upload_video_chunk in api.php).
+function mcpTempUploadPath(): string {
+    if (!is_dir(TMP_UPLOADS_DIR) && !@mkdir(TMP_UPLOADS_DIR, 0755, true) && !is_dir(TMP_UPLOADS_DIR)) {
+        throw new McpToolError('Upload directory is not available', 500);
+    }
+    if (!is_writable(TMP_UPLOADS_DIR)) throw new McpToolError('Upload directory is not writable', 500);
+    ensureProtectedDirectoryIndex(TMP_UPLOADS_DIR);
+    return TMP_UPLOADS_DIR . '/mcp_' . bin2hex(random_bytes(8)) . '.part';
+}
+
+// Copy a stream into $path, counting bytes; more than $max → 413, nothing kept.
+function mcpStreamToFile($in, string $path, int $max): int {
+    if (!$in) throw new McpToolError('Failed to read the upload data', 500);
+    $out = @fopen($path, 'wb');
+    if (!$out) throw new McpToolError('Failed to store the upload', 500);
+    $n = 0;
+    try {
+        while (!feof($in)) {
+            $buf = fread($in, 1024 * 1024);
+            if ($buf === false) throw new McpToolError('Failed to read the upload data', 500);
+            if ($buf === '') break;
+            $n += strlen($buf);
+            if ($n > $max) throw new McpToolError('File too large (max ' . mcpFormatBytes($max) . ')', 413);
+            if (fwrite($out, $buf) !== strlen($buf)) throw new McpToolError('Failed to store the upload', 500);
+        }
+    } finally {
+        fclose($out);
+    }
+    return $n;
+}
+
+// Download an http(s) URL into $path with curl. Redirects are followed by
+// hand so every hop is checked: http/https only, at most 3 redirects, 20 s in
+// total, more than $max bytes aborts (Content-Length and a byte counter).
+// Private / loopback hosts are NOT blocked (a token already has admin rights,
+// and self-hosted setups fetch from the LAN); response bodies never end up in
+// error messages, and only files that pass the image check are kept.
+function mcpDownloadToFile(string $url, string $path, int $max): void {
+    if (!function_exists('curl_init')) {
+        throw new McpToolError('source_url needs the PHP curl extension on this server. Send data_base64 instead, or use the raw upload endpoint.');
+    }
+    $deadline = microtime(true) + MCP_DOWNLOAD_TIMEOUT;
+    for ($hop = 0; ; $hop++) {
+        $remaining = $deadline - microtime(true);
+        if ($remaining <= 0) throw new McpToolError('Download timed out (' . MCP_DOWNLOAD_TIMEOUT . ' s)', 504);
+        $fh = @fopen($path, 'wb');
+        if (!$fh) throw new McpToolError('Failed to store the download', 500);
+        $n = 0; $tooLarge = false; $location = '';
+        $ch = curl_init();
+        $opts = [
+            CURLOPT_URL            => $url,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_CONNECTTIMEOUT_MS => (int)min(10000, $remaining * 1000),
+            CURLOPT_TIMEOUT_MS     => max(1, (int)($remaining * 1000)),
+            CURLOPT_NOSIGNAL       => true,
+            CURLOPT_MAXFILESIZE    => $max,
+            CURLOPT_USERAGENT      => 'WebstudioDocs-MCP/' . MCP_SERVER_VERSION,
+            CURLOPT_HEADERFUNCTION => function ($ch, $line) use (&$location) {
+                if (preg_match('/^location:\s*(.*?)\s*$/i', $line, $m)) $location = $m[1];
+                return strlen($line);
+            },
+            CURLOPT_WRITEFUNCTION  => function ($ch, $data) use ($fh, &$n, &$tooLarge, $max) {
+                $n += strlen($data);
+                if ($n > $max) { $tooLarge = true; return 0; } // a short count aborts the transfer
+                return (int)fwrite($fh, $data);
+            },
+        ];
+        if (defined('CURLOPT_PROTOCOLS_STR')) $opts[CURLOPT_PROTOCOLS_STR] = 'http,https';
+        else $opts[CURLOPT_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS;
+        curl_setopt_array($ch, $opts);
+        curl_exec($ch);
+        $errno  = curl_errno($ch);
+        $error  = curl_error($ch);
+        $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        $next   = (string)curl_getinfo($ch, CURLINFO_REDIRECT_URL);
+        unset($ch); // curl_close() is a no-op since PHP 8 (deprecated in 8.5)
+        fclose($fh);
+
+        if ($tooLarge || $errno === 63 /* CURLE_FILESIZE_EXCEEDED */) {
+            throw new McpToolError('File too large (max ' . mcpFormatBytes($max) . ')', 413);
+        }
+        if ($errno === 28 /* CURLE_OPERATION_TIMEDOUT */) throw new McpToolError('Download timed out (' . MCP_DOWNLOAD_TIMEOUT . ' s)', 504);
+        if ($errno !== 0) throw new McpToolError('Download failed: ' . mcpSanitizeText($error, 200), 502);
+        if (in_array($status, [301, 302, 303, 307, 308], true)) {
+            $target = $next !== '' ? $next : $location;
+            if ($target === '') throw new McpToolError("Download failed: HTTP $status without a Location header", 502);
+            if (!preg_match('#^https?://#i', $target)) {
+                $scheme = preg_match('/^([a-z][a-z0-9+.-]*):/i', $target, $m) ? $m[1] . ':' : 'an unsupported URL';
+                throw new McpToolError("Download refused: redirect to $scheme (only http and https are allowed)", 400);
+            }
+            if ($hop >= MCP_DOWNLOAD_MAX_REDIRECTS) throw new McpToolError('Download failed: more than ' . MCP_DOWNLOAD_MAX_REDIRECTS . ' redirects', 502);
+            $url = $target;
+            continue;
+        }
+        if ($status < 200 || $status >= 300) throw new McpToolError("Download failed: HTTP $status", 502);
+        return;
+    }
+}
+
+// Validate an uploaded temp file and move it into images/ or videos/ under a
+// generated name (uniqid like api.php). Returns the tool / raw-upload result
+// with root-relative url (store this one), absoluteUrl and a ready block.
+function mcpStoreUpload(string $tmp, string $kind, string $originalName = ''): array {
+    $bytes = (int)@filesize($tmp);
+    if ($bytes <= 0) throw new McpToolError('The file is empty');
+    if ($kind === 'image') {
+        $mime = detectUploadedImageMime($tmp);
+        if ($mime === 'image/svg+xml') throw new McpToolError('SVG images are not allowed. Upload PNG, JPEG, GIF or WebP.', 415);
+        if (!isset(MCP_IMAGE_TYPES[$mime])) throw new McpToolError('File type not allowed' . ($mime ? " ($mime)" : '') . ': upload PNG, JPEG, GIF or WebP', 415);
+        if ($bytes > MCP_IMAGE_MAX_BYTES) throw new McpToolError('File too large (max ' . mcpFormatBytes(MCP_IMAGE_MAX_BYTES) . ')', 413);
+        $dir = IMAGES_DIR; $sub = 'images';
+        $name = uniqid('img_', true) . '.' . MCP_IMAGE_TYPES[$mime];
+    } else {
+        $mime = detectUploadedVideoMime($tmp);
+        if (!isset(MCP_VIDEO_TYPES[$mime])) throw new McpToolError('File type not allowed' . ($mime ? " ($mime)" : '') . ': upload MP4, WebM or Ogg video', 415);
+        if ($bytes > VIDEO_MAX_BYTES) throw new McpToolError('File too large (max ' . mcpFormatBytes(VIDEO_MAX_BYTES) . ')', 413);
+        $dir = VIDEOS_DIR; $sub = 'videos';
+        $name = uniqid('vid_', true) . '.' . MCP_VIDEO_TYPES[$mime];
+    }
+    if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) throw new McpToolError('Upload directory is not available', 500);
+    if (!is_writable($dir)) throw new McpToolError('Upload directory is not writable', 500);
+    $dest = $dir . '/' . $name;
+    if (!@rename($tmp, $dest)) throw new McpToolError('Failed to save the file', 500);
+    @chmod($dest, 0644);
+
+    $url = mcpBasePath() . "/$sub/$name";
+    $out = ['url' => $url, 'absoluteUrl' => mcpBaseUrl() . "/$sub/$name", 'filename' => $name, 'mime' => $mime, 'bytes' => $bytes];
+    if ($originalName !== '') $out['originalName'] = $originalName;
+    $out['block'] = $kind === 'image'
+        ? ['type' => 'image', 'data' => ['url' => $url, 'caption' => '']]
+        : ['type' => 'video', 'data' => ['src' => $url, 'filename' => $name, 'mime' => $mime]];
+    return $out;
+}
+
+// curl example for the raw upload endpoint (guide, instructions, tool texts).
+function mcpRawUploadExample(string $kind = 'image', string $file = 'image.png'): string {
+    return 'curl -H "Authorization: Bearer <TOKEN>" --data-binary @' . $file . ' "' . mcpBaseUrl() . "/mcp.php?upload=$kind&filename=$file\"";
+}
+
 // ════════════════════════════════════════════
 //  3. TOOL REGISTRY
 // ════════════════════════════════════════════
@@ -1336,23 +1565,12 @@ mcpTool('get_settings', [
     'inputSchema' => ['type' => 'object', 'properties' => [], 'additionalProperties' => false],
     'annotations' => $MCP_RO,
 ], function (array $args): array {
-    $s = mcpReadSettings();
-    $out = [];
-    foreach (['siteName', 'tabTitle', 'accentColor', 'theme', 'lang', 'footerText', 'footerTailHtml'] as $k) {
-        $out[$k] = array_key_exists($k, $s) ? $s[$k] : null;
-    }
-    // Effective values, same defaults as shared.js (isHideSingleSpaceTabsEnabled() etc.).
-    $out['hideSingleSpaceTabs'] = ($s['hideSingleSpaceTabs'] ?? false) === true;
-    $out['shareSectionEnabled'] = ($s['shareSectionEnabled'] ?? true) !== false;
-    $out['translateEnabled']    = ($s['translateEnabled'] ?? true) !== false;
-    $out['hasLogo']    = is_string($s['logoDataUrl'] ?? null) && $s['logoDataUrl'] !== '';
-    $out['hasFavicon'] = is_string($s['faviconDataUrl'] ?? null) && $s['faviconDataUrl'] !== '';
-    return $out;
+    return mcpSettingsPublic(mcpReadSettings());
 });
 
 // Text of get_content_guide. Must match mcpNormalizeBlockData() above.
 function mcpContentGuide(): string {
-    return <<<'GUIDE'
+    $guide = <<<'GUIDE'
 # Writing content for Webstudio Docs
 
 Page content is a JSON array of EditorJS blocks: [{"type": "...", "data": {...}}, ...].
@@ -1399,9 +1617,22 @@ Link URLs must be http(s), mailto, relative or #anchor; anything else is removed
 
 ## Images and covers
 
-1. Upload first (upload_image, or the raw upload endpoint from get_site with curl).
+1. Upload first. PNG, JPEG, GIF or WebP, max. 10 MB, no SVG. Three ways:
+   - upload_image {"source_url": "https://…/pic.png"}: the server downloads it.
+   - upload_image {"data_base64": "iVBORw0…"}: small files only (base64 costs tokens).
+   - With shell access, send a local file as the raw request body (no base64;
+     <TOKEN> = the bearer token of this MCP connection):
+     {{RAW_IMAGE}}
+     The answer is plain JSON: {"ok": true, "url", "absoluteUrl", "filename", "mime", "bytes", "block"}.
 2. Use the returned root-relative url, e.g. "/images/img_6720….png", in an image block
-   or cover. External http(s) image URLs work too. list_images shows existing images.
+   or cover (or insert the returned "block" as is). External http(s) image URLs work too.
+   list_images shows existing images and which pages use them; delete_image removes
+   one (refused while pages use it, unless force=true).
+
+Videos (mp4, webm, ogg) are uploaded only through the raw endpoint; use PUT for big files:
+     {{RAW_VIDEO}}
+The answer contains a ready block {"type": "video", "data": {"src", "filename", "mime"}}.
+For YouTube/Vimeo use {"type": "video", "data": {"embedUrl": "https://www.youtube.com/watch?v=…"}}.
 
 Page cover (create_page / update_page "cover"; null removes it):
 - {"type": "color", "value": "#7c3aed"} or {"type": "color", "value": "linear-gradient(135deg,#f97316,#7c3aed)"}
@@ -1437,6 +1668,11 @@ Page cover (create_page / update_page "cover"; null removes it):
 - set_section / rename_section: group root pages ("" removes the section).
 - set_page_id: change a page id; internal links in all pages are rewritten.
 - delete_page: moves to the trash; subpages only with include_children=true.
+- create_space / update_space (name, icon, tab position) / delete_space (confirm: true;
+  trashes all pages of the space; the last space cannot be deleted).
+- update_settings: siteName, tabTitle, accentColor "#rrggbb", theme "dark"/"light",
+  lang "de"/"en"/"sk", footerText / footerTailHtml (inline HTML), hideSingleSpaceTabs,
+  shareSectionEnabled, translateEnabled. Logo and favicon only in the editor.
 - position (create_page, move_page) is the 0-based index among the siblings; for
   root pages among all root pages of the space, across sections.
 - Structure changes (move, reorder, sections) do not change updatedAt; content and
@@ -1477,6 +1713,8 @@ Page cover (create_page / update_page "cover"; null removes it):
   ]}}
 ]
 GUIDE;
+    $video = 'curl -T video.mp4 -H "Authorization: Bearer <TOKEN>" "' . mcpBaseUrl() . '/mcp.php?upload=video&filename=video.mp4"';
+    return str_replace(['{{RAW_IMAGE}}', '{{RAW_VIDEO}}'], [mcpRawUploadExample(), $video], $guide);
 }
 
 // ── Page write tools (AP5) ─────────────────
@@ -2097,15 +2335,299 @@ mcpTool('set_section', [
     return $out;
 });
 
+// ── Spaces, settings, media (AP6) ──────────
+// spaces.json / settings.json are rewritten as a whole, like save() in the
+// editor. An editor tab that is open meanwhile can write its old state back
+// (plan §7): results remind the agent to ask for a reload.
+
+$MCP_EDITOR_RELOAD_NOTE = 'If someone has the editor open, ask them to reload it, otherwise its next save can overwrite this change.';
+
+mcpTool('create_space', [
+    'title'       => 'Create space',
+    'description' => 'Create a space (a top-level tab), appended after the existing spaces. The id is generated like the editor does ("_" + 8 characters a-z/0-9) unless you pass one in that format. '
+                   . 'Then add pages with create_page space_id=<id>. Reorder tabs with update_space position.',
+    'inputSchema' => ['type' => 'object', 'properties' => [
+        'name' => ['type' => 'string', 'description' => 'Tab label (plain text, max. 80 characters)'],
+        'icon' => ['type' => 'string', 'description' => 'Font Awesome icon, e.g. "fa-book" (default) or "rocket"'],
+        'id'   => ['type' => 'string', 'description' => 'Optional fixed id, format "_" + 8 characters a-z/0-9, e.g. "_api2026x"', 'pattern' => '^_[a-z0-9]{8}$'],
+    ], 'required' => ['name'], 'additionalProperties' => false],
+    'annotations' => ['readOnlyHint' => false, 'destructiveHint' => false, 'idempotentHint' => false, 'openWorldHint' => false],
+], function (array $args) use ($MCP_EDITOR_RELOAD_NOTE): array {
+    $name = mcpSpaceName(mcpArg($args, 'name', 'string'));
+    $icon = mcpIconValue(mcpArg($args, 'icon', 'string', ''), 'fa-book');
+    $spaces = array_values(array_filter(mcpReadJsonForWrite(DATA_DIR . '/spaces.json'), 'is_array'));
+    $id = trim(mcpArg($args, 'id', 'string', ''));
+    if ($id === '') {
+        $id = mcpNewSpaceId($spaces);
+    } else {
+        if (!preg_match('/^_[a-z0-9]{8}$/', $id)) {
+            throw new McpToolError('Invalid space id "' . mcpSanitizeText($id, 40) . '": use "_" followed by exactly 8 characters a-z / 0-9 (e.g. "_api2026x"), or omit id to generate one');
+        }
+        foreach ($spaces as $s) {
+            if ((string)($s['id'] ?? '') === $id) throw new McpToolError("Space id $id is already taken");
+        }
+    }
+    $space = ['id' => $id, 'name' => $name, 'icon' => $icon];
+    $spaces[] = $space;
+    mcpWriteSpaces($spaces);
+    return ['space' => $space + ['position' => count($spaces) - 1], 'spaces' => mcpSpaceList($spaces), 'note' => $MCP_EDITOR_RELOAD_NOTE];
+});
+
+mcpTool('update_space', [
+    'title'       => 'Update space',
+    'description' => 'Rename a space, change its icon, or move its tab: position = 0-based index in the tab order (larger values = last). Pages are not touched.',
+    'inputSchema' => ['type' => 'object', 'properties' => [
+        'id'       => ['type' => 'string', 'description' => 'Space id (from get_site)'],
+        'name'     => ['type' => 'string', 'description' => 'New tab label (plain text, max. 80 characters)'],
+        'icon'     => ['type' => 'string', 'description' => 'Font Awesome icon, e.g. "fa-code"; "" resets to fa-book'],
+        'position' => ['type' => 'integer', 'minimum' => 0, 'description' => 'New 0-based tab position'],
+    ], 'required' => ['id'], 'additionalProperties' => false],
+    'annotations' => ['readOnlyHint' => false, 'destructiveHint' => false, 'idempotentHint' => true, 'openWorldHint' => false],
+], function (array $args) use ($MCP_EDITOR_RELOAD_NOTE): array {
+    $id = trim(mcpArg($args, 'id', 'string'));
+    $spaces = array_values(array_filter(mcpReadJsonForWrite(DATA_DIR . '/spaces.json'), 'is_array'));
+    $idx = mcpSpaceIndex($spaces, $id);
+    $name = mcpArg($args, 'name', 'string', null);
+    $icon = mcpArg($args, 'icon', 'string', null);
+    $pos  = mcpPositionArg($args);
+    if ($name === null && $icon === null && $pos === null) throw new McpToolError('Nothing to change: pass name, icon and/or position');
+
+    $space = $spaces[$idx];
+    $changed = [];
+    if ($name !== null && ($name = mcpSpaceName($name)) !== ($space['name'] ?? null)) { $space['name'] = $name; $changed[] = 'name'; }
+    if ($icon !== null && ($icon = mcpIconValue($icon, 'fa-book')) !== ($space['icon'] ?? null)) { $space['icon'] = $icon; $changed[] = 'icon'; }
+    $spaces[$idx] = $space;
+    if ($pos !== null) {
+        $pos = min($pos, count($spaces) - 1);
+        if ($pos !== $idx) {
+            array_splice($spaces, $idx, 1);
+            array_splice($spaces, $pos, 0, [$space]);
+            $changed[] = 'position';
+            $idx = $pos;
+        }
+    }
+    if ($changed) mcpWriteSpaces($spaces);
+    $out = ['space' => $space + ['position' => $idx], 'changed' => $changed, 'spaces' => mcpSpaceList($spaces)];
+    if ($changed) $out['note'] = $MCP_EDITOR_RELOAD_NOTE;
+    return $out;
+});
+
+mcpTool('delete_space', [
+    'title'       => 'Delete space',
+    'description' => 'Delete a space and move ALL its pages to the trash (data/trash/pages on the server; not a hard delete), like deleting a space in the editor. '
+                   . 'Requires confirm: true. The last remaining space cannot be deleted. The result lists pages in other spaces that still link to the trashed pages.',
+    'inputSchema' => ['type' => 'object', 'properties' => [
+        'id'      => ['type' => 'string', 'description' => 'Space id'],
+        'confirm' => ['type' => 'boolean', 'description' => 'Must be true', 'const' => true],
+    ], 'required' => ['id', 'confirm'], 'additionalProperties' => false],
+    'annotations' => ['readOnlyHint' => false, 'destructiveHint' => true, 'idempotentHint' => false, 'openWorldHint' => false],
+], function (array $args) use ($MCP_EDITOR_RELOAD_NOTE): array {
+    $id = trim(mcpArg($args, 'id', 'string'));
+    $spaces = array_values(array_filter(mcpReadJsonForWrite(DATA_DIR . '/spaces.json'), 'is_array'));
+    $idx = mcpSpaceIndex($spaces, $id);
+    $space = $spaces[$idx];
+    if (count($spaces) <= 1) throw new McpToolError('The last space cannot be deleted. Create another space first (create_space).');
+
+    $pages = mcpLoadAllPages();
+    $ids = [];
+    foreach ($pages as $pid => $p) {
+        if ((string)($p['spaceId'] ?? '') === $id) $ids[] = (string)$pid;
+    }
+    if (mcpArg($args, 'confirm', 'bool', false) !== true) {
+        throw new McpToolError('Deleting space ' . $id . ' ("' . ($space['name'] ?? '') . '") moves its ' . count($ids)
+            . ' page(s) to the trash. Pass confirm: true to proceed.');
+    }
+
+    trashPagesById($ids);
+    foreach ($ids as $d) {
+        if (file_exists(pageFilePath($d))) throw new McpToolError("Failed to move page $d to the trash; the space was not deleted", 500);
+        unset($pages[$d]);
+    }
+    array_splice($spaces, $idx, 1);
+    mcpWriteSpaces($spaces);
+
+    $linkedFrom = [];
+    foreach ($pages as $pid => $p) {
+        if (!is_array($p['content']['blocks'] ?? null)) continue;
+        $n = 0;
+        foreach ($ids as $d) mcpRewritePageLinks($p['content']['blocks'], $d, null, $n);
+        if ($n > 0) $linkedFrom[] = ['id' => (string)$pid, 'links' => $n];
+    }
+    $out = ['deleted' => $space, 'trashedPages' => $ids, 'trash' => 'data/trash/pages', 'spaces' => mcpSpaceList($spaces), 'note' => $MCP_EDITOR_RELOAD_NOTE];
+    if ($linkedFrom) $out['linkedFrom'] = $linkedFrom;
+    return $out;
+});
+
+mcpTool('update_settings', [
+    'title'       => 'Update site settings',
+    'description' => 'Change site settings; only the keys you pass change, the rest stays. Values: siteName, tabTitle (plain text); accentColor "#rrggbb"; theme "dark"|"light" (default theme for visitors); '
+                   . 'lang "de"|"en"|"sk" (interface language, also the original language for the translate widget); footerText, footerTailHtml (inline HTML: b, strong, i, em, u, s, mark, code, br, a); '
+                   . 'hideSingleSpaceTabs, shareSectionEnabled, translateEnabled (booleans). Logo and favicon can only be changed in the editor. Returns the new settings like get_settings.',
+    'inputSchema' => ['type' => 'object', 'properties' => [
+        'siteName'            => ['type' => 'string', 'description' => 'Site name next to the logo (max. 100)'],
+        'tabTitle'            => ['type' => 'string', 'description' => 'Browser tab title on the start page (max. 100)'],
+        'accentColor'         => ['type' => 'string', 'pattern' => '^#[0-9a-fA-F]{6}$', 'description' => 'Accent color, e.g. "#f97316"'],
+        'theme'               => ['type' => 'string', 'enum' => MCP_THEMES],
+        'lang'                => ['type' => 'string', 'enum' => MCP_LANGS],
+        'footerText'          => ['type' => 'string', 'description' => 'Footer text (inline HTML, max. 2000; "" hides it)'],
+        'footerTailHtml'      => ['type' => 'string', 'description' => 'Right part of the footer (inline HTML, max. 2000; "" hides it)'],
+        'hideSingleSpaceTabs' => ['type' => 'boolean', 'description' => 'Hide the tab bar while there is only one space'],
+        'shareSectionEnabled' => ['type' => 'boolean', 'description' => 'Show the share section in the page sidebar'],
+        'translateEnabled'    => ['type' => 'boolean', 'description' => 'Show the translate widget'],
+    ], 'additionalProperties' => false],
+    'annotations' => ['readOnlyHint' => false, 'destructiveHint' => false, 'idempotentHint' => true, 'openWorldHint' => false],
+], function (array $args) use ($MCP_EDITOR_RELOAD_NOTE): array {
+    $known = ['siteName', 'tabTitle', 'accentColor', 'theme', 'lang', 'footerText', 'footerTailHtml',
+              'hideSingleSpaceTabs', 'shareSectionEnabled', 'translateEnabled'];
+    $unknown = array_values(array_diff(array_map('strval', array_keys($args)), $known));
+    if ($unknown) {
+        $msg = 'Unknown setting(s): ' . implode(', ', array_map(function ($k) { return mcpSanitizeText($k, 40); }, $unknown)) . '. Allowed: ' . implode(', ', $known) . '.';
+        if (array_intersect($unknown, ['logoDataUrl', 'faviconDataUrl', 'logo', 'favicon'])) $msg .= ' Logo and favicon can only be changed in the editor.';
+        throw new McpToolError($msg);
+    }
+    $new = [];
+    foreach (['siteName', 'tabTitle'] as $k) {
+        if (($v = mcpArg($args, $k, 'string', null)) !== null) $new[$k] = mcpSanitizeText($v, 100);
+    }
+    if (($v = mcpArg($args, 'accentColor', 'string', null)) !== null) {
+        if (!preg_match('/^#[0-9a-fA-F]{6}$/', trim($v))) throw new McpToolError('accentColor must be a hex color "#rrggbb", e.g. "#f97316"');
+        $new['accentColor'] = strtolower(trim($v));
+    }
+    foreach (['theme' => MCP_THEMES, 'lang' => MCP_LANGS] as $k => $allowed) {
+        if (($v = mcpArg($args, $k, 'string', null)) === null) continue;
+        $v = strtolower(trim($v));
+        if (!in_array($v, $allowed, true)) throw new McpToolError("$k must be one of: " . implode(', ', $allowed));
+        $new[$k] = $v;
+    }
+    foreach (['footerText', 'footerTailHtml'] as $k) {
+        if (($v = mcpArg($args, $k, 'string', null)) === null) continue;
+        if (mcpStrlen($v) > 2000) throw new McpToolError("$k is too long (max. 2000 characters)");
+        $new[$k] = mcpSanitizeInlineHtml(trim($v));
+    }
+    foreach (['hideSingleSpaceTabs', 'shareSectionEnabled', 'translateEnabled'] as $k) {
+        if (($v = mcpArg($args, $k, 'bool', null)) !== null) $new[$k] = $v;
+    }
+    if (!$new) throw new McpToolError('Nothing to change: pass at least one of ' . implode(', ', $known));
+
+    $path = DATA_DIR . '/settings.json';
+    $settings = mcpReadJsonForWrite($path);
+    $changed = [];
+    foreach ($new as $k => $v) {
+        if (!array_key_exists($k, $settings) || $settings[$k] !== $v) $changed[] = $k;
+        $settings[$k] = $v;
+    }
+    if ($changed && !jsonWrite($path, $settings)) throw new McpToolError('Failed to write settings.json', 500);
+    $out = ['changed' => $changed, 'settings' => mcpSettingsPublic($settings)];
+    if ($changed) $out['note'] = $MCP_EDITOR_RELOAD_NOTE;
+    return $out;
+});
+
+mcpTool('upload_image', [
+    'title'       => 'Upload image',
+    'description' => 'Store an image (PNG, JPEG, GIF or WebP; no SVG; max. 10 MB) from exactly one source: data_base64 (file content, a data: URL is fine) or source_url (http/https; the server downloads it, max. 3 redirects, 20 s). '
+                   . 'Returns url (root-relative, use it in image blocks and covers), absoluteUrl, filename and a ready image block. '
+                   . 'With shell access, upload local files without base64 via the raw endpoint: ' . mcpRawUploadExample(),
+    'inputSchema' => ['type' => 'object', 'properties' => [
+        'data_base64' => ['type' => 'string', 'description' => 'Base64 file content (or data:image/…;base64,…)'],
+        'source_url'  => ['type' => 'string', 'description' => 'http(s) URL to download the image from'],
+        'filename'    => ['type' => 'string', 'description' => 'Original file name (informational; the stored name is generated)'],
+    ], 'additionalProperties' => false],
+    'annotations' => ['readOnlyHint' => false, 'destructiveHint' => false, 'idempotentHint' => false, 'openWorldHint' => true],
+], function (array $args): array {
+    $b64 = mcpArg($args, 'data_base64', 'string', '');
+    $src = trim(mcpArg($args, 'source_url', 'string', ''));
+    $name = mcpOriginalName(mcpArg($args, 'filename', 'string', ''));
+    if (($b64 !== '') === ($src !== '')) {
+        throw new McpToolError('Pass exactly one source: data_base64 or source_url. For local files use the raw upload endpoint: ' . mcpRawUploadExample());
+    }
+    $tmp = mcpTempUploadPath();
+    try {
+        if ($b64 !== '') {
+            if (preg_match('/^\s*data:[^,]*?(;base64)?,/i', $b64, $m)) {
+                if (empty($m[1])) throw new McpToolError('data_base64: only base64 data: URLs are supported');
+                $b64 = substr($b64, strlen($m[0]));
+            }
+            $b64 = preg_replace('/\s+/', '', $b64) ?? '';
+            if (strlen($b64) > intdiv(MCP_IMAGE_MAX_BYTES + 2, 3) * 4) throw new McpToolError('File too large (max ' . mcpFormatBytes(MCP_IMAGE_MAX_BYTES) . ')', 413);
+            $bin = base64_decode(strtr($b64, '-_', '+/'), true);
+            if ($bin === false || $bin === '') throw new McpToolError('data_base64 is not valid base64');
+            if (strlen($bin) > MCP_IMAGE_MAX_BYTES) throw new McpToolError('File too large (max ' . mcpFormatBytes(MCP_IMAGE_MAX_BYTES) . ')', 413);
+            if (file_put_contents($tmp, $bin) !== strlen($bin)) throw new McpToolError('Failed to store the upload', 500);
+            unset($bin);
+        } else {
+            if (strlen($src) > 2048 || !preg_match('#^https?://[^/\s]#i', $src)) throw new McpToolError('source_url must be an http:// or https:// URL');
+            mcpDownloadToFile($src, $tmp, MCP_IMAGE_MAX_BYTES);
+            if ($name === '') $name = mcpOriginalName(rawurldecode((string)parse_url($src, PHP_URL_PATH)));
+        }
+        return mcpStoreUpload($tmp, 'image', $name);
+    } finally {
+        if (is_file($tmp)) @unlink($tmp);
+    }
+});
+
+mcpTool('delete_image', [
+    'title'       => 'Delete image',
+    'description' => 'Delete an uploaded image file (filename from list_images, e.g. "img_6720a1b2c3d4e5.12345678.png"). This is a hard delete (images have no trash). '
+                   . 'If pages still use the image (content or cover) the call fails and lists them, unless force=true.',
+    'inputSchema' => ['type' => 'object', 'properties' => [
+        'filename' => ['type' => 'string', 'description' => 'Bare file name, no path'],
+        'force'    => ['type' => 'boolean', 'description' => 'Delete even if pages still use it (default false)', 'default' => false],
+    ], 'required' => ['filename'], 'additionalProperties' => false],
+    'annotations' => ['readOnlyHint' => false, 'destructiveHint' => true, 'idempotentHint' => false, 'openWorldHint' => false],
+], function (array $args): array {
+    $name = trim(mcpArg($args, 'filename', 'string'));
+    $force = mcpArg($args, 'force', 'bool', false);
+    if (!preg_match('/^[A-Za-z0-9_.-]+$/', $name) || $name[0] === '.') {
+        throw new McpToolError('Invalid filename: use the bare file name from list_images (letters, digits, "_", ".", "-"; no path)');
+    }
+    $files = array_map('basename', mcpImageFiles());
+    if (!in_array($name, $files, true)) throw new McpToolError("Image not found: $name. Use list_images to see the uploaded images.", 404);
+    $usedBy = mcpImageUsedBy($name);
+    if ($usedBy && !$force) {
+        throw new McpToolError("Image $name is still used by " . count($usedBy) . ' page(s): ' . json_encode($usedBy)
+            . '. Remove it from these pages first (edit_blocks / update_page cover), or pass force=true to delete it anyway (they will show a broken image).');
+    }
+    if (!@unlink(IMAGES_DIR . '/' . $name)) throw new McpToolError("Failed to delete $name", 500);
+    $out = ['deleted' => $name];
+    if ($usedBy) $out['brokenOn'] = $usedBy;
+    return $out;
+});
+
 // ════════════════════════════════════════════
 //  5. RAW UPLOAD HOOK
 //  mcp.php?upload=image|video&filename=… (POST/PUT, body = file, bearer auth).
 //  Called after authentication; must send a plain JSON response (no JSON-RPC).
-//  AP6 replaces the body of this function.
+//  The body is streamed into a temp file in TMP_UPLOADS_DIR with a byte
+//  counter, then checked and moved like upload_image / upload_video_chunk.
 // ════════════════════════════════════════════
 
 function mcpHandleRawUpload(string $kind): void {
-    mcpSendJson(['ok' => false, 'error' => 'Raw upload is not available yet'], 501);
+    if ($kind !== 'image' && $kind !== 'video') throw new McpToolError('upload must be "image" or "video"');
+    $max = $kind === 'image' ? MCP_IMAGE_MAX_BYTES : VIDEO_MAX_BYTES;
+    $type = strtolower((string)($_SERVER['CONTENT_TYPE'] ?? ''));
+    if (strpos($type, 'multipart/form-data') === 0) {
+        throw new McpToolError('Send the file itself as the request body (curl --data-binary @file or -T file), not as a multipart form (-F)', 415);
+    }
+    // php://input stays readable above post_max_size (PHP only logs a startup
+    // warning for such POSTs), so big files work with POST too; PUT avoids the
+    // warning and is what the docs recommend for videos.
+    $len = (string)($_SERVER['CONTENT_LENGTH'] ?? '');
+    if ($len !== '' && ctype_digit($len) && (int)$len > $max) {
+        throw new McpToolError('File too large (max ' . mcpFormatBytes($max) . ')', 413);
+    }
+    if ($kind === 'video') @set_time_limit(0);
+
+    $tmp = mcpTempUploadPath();
+    try {
+        $in = @fopen('php://input', 'rb');
+        if (mcpStreamToFile($in, $tmp, $max) === 0) {
+            throw new McpToolError('Empty body: send the file as the request body, e.g. ' . mcpRawUploadExample($kind, $kind === 'image' ? 'image.png' : 'video.mp4'));
+        }
+        $result = mcpStoreUpload($tmp, $kind, mcpOriginalName($_GET['filename'] ?? ''));
+    } finally {
+        if (is_file($tmp)) @unlink($tmp);
+    }
+    mcpSendJson(['ok' => true] + $result);
 }
 
 // ════════════════════════════════════════════
@@ -2134,10 +2656,13 @@ function mcpInstructions(): string {
         'Everything you write is sanitized: disallowed HTML is escaped, unsafe URLs are removed.',
         'To avoid overwriting edits made in the meantime, pass the updatedAt you read as if_updated_at when updating a page.',
         'Deleting pages moves them to the trash on the server (data/trash), it is not a hard delete.',
-        'Images: upload first, then reference the returned url in an image block or cover.',
-        'With shell access, upload local files directly instead of base64:',
-        '  curl -H "Authorization: Bearer <TOKEN>" --data-binary @image.png "' . $base . '/mcp.php?upload=image&filename=image.png"',
-        'Videos: same endpoint with upload=video (mp4/webm/ogg), or a video block with a YouTube/Vimeo embedUrl.',
+        'Spaces: create_space / update_space / delete_space (delete_space trashes all pages of the space). Site settings: get_settings / update_settings (no logo/favicon).',
+        'Images (PNG/JPEG/GIF/WebP, max 10 MB, no SVG): upload first, then put the returned url (or the returned block) into an image block or cover.',
+        'upload_image takes data_base64 or a source_url the server downloads. With shell access, upload local files directly instead of base64',
+        '(<TOKEN> = the bearer token you use for this server; the JSON answer has url, absoluteUrl and a ready block):',
+        '  ' . mcpRawUploadExample(),
+        'Videos (mp4/webm/ogg) only via the raw endpoint with upload=video; use PUT for big files: curl -T video.mp4 -H "Authorization: Bearer <TOKEN>" "' . $base . '/mcp.php?upload=video&filename=video.mp4".',
+        'Or use a video block with a YouTube/Vimeo embedUrl. delete_image refuses images that pages still use (force=true overrides).',
         'Pages are public at ' . $base . '/index.php?page=<id> unless draft is true; humans edit at ' . $base . '/editor.php.',
         'If a human has the editor open, ask them to reload it after your changes.',
     ]);
