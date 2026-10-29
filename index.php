@@ -997,8 +997,8 @@ function renderPage() {
   breadParts.push(`<span>${esc(page.title)}</span>`);
 
   view.innerHTML = `
-    ${page.cover ? `<div class="page-cover" id="page-cover-el" style="${page.cover.type === 'color' ? 'background:' + page.cover.value : ''}">
-      ${page.cover.type === 'image' ? `<img src="${esc(page.cover.value)}" alt="" style="object-fit:${page.cover.fit || 'cover'};object-position:${page.cover.position || '50% 50%'}">` : ''}
+    ${page.cover ? `<div class="page-cover" id="page-cover-el" style="${page.cover.type === 'color' ? 'background:' + esc(page.cover.value) : ''}">
+      ${page.cover.type === 'image' ? `<img src="${esc(page.cover.value)}" alt="" style="object-fit:${esc(page.cover.fit || 'cover')};object-position:${esc(page.cover.position || '50% 50%')}">` : ''}
     </div>` : ''}
     <div class="breadcrumb">${breadParts.join('')}</div>
     <div class="page-hero">

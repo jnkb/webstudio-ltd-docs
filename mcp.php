@@ -137,18 +137,27 @@ function mcpArg(array $args, string $name, string $type, $default = MCP_REQUIRED
 // #anchor, //host. Anything else (javascript:, data:, vbscript:, …) → ''.
 // Entities and control/whitespace characters are resolved before the scheme
 // check, so "java&#09;script:" or "javascript&colon;" are caught too.
+// The returned URL never contains characters that could end an HTML attribute
+// or tag when a client interpolates it unescaped: control chars, whitespace,
+// " ' < > ` and \ are percent-encoded (%22, %27, %3C, …).
 function mcpSanitizeUrl(string $url, bool $allowRelative = true): string {
-    $url = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', $url) ?? '');
+    $url = trim($url);
     if ($url === '' || strlen($url) > 2048) return '';
     $probe = html_entity_decode($url, ENT_QUOTES | ENT_HTML5, 'UTF-8');
     $probe = preg_replace('/[\x00-\x20\x7F]+/', '', $probe) ?? '';
     if (preg_match('/^([a-zA-Z][a-zA-Z0-9+.-]*):/', $probe, $m)) {
-        return in_array(strtolower($m[1]), ['http', 'https', 'mailto'], true) ? $url : '';
+        if (!in_array(strtolower($m[1]), ['http', 'https', 'mailto'], true)) return '';
+    } elseif (preg_match('/^[^\/?#]*:/', $probe)) {
+        // No scheme in the decoded form, but a colon before any / ? # could
+        // still be read as a scheme by a browser in some edge case → reject.
+        return '';
+    } elseif (!$allowRelative) {
+        return '';
     }
-    // No scheme in the decoded form, but a colon before any / ? # could still
-    // be read as a scheme by a browser in some edge case → reject.
-    if (preg_match('/^[^\/?#]*:/', $probe)) return '';
-    return $allowRelative ? $url : '';
+    $url = preg_replace_callback('/[\x00-\x20\x7F"\'<>`\\\\]/', function ($c) {
+        return '%' . strtoupper(bin2hex($c[0]));
+    }, $url) ?? '';
+    return strlen($url) > 2048 ? '' : $url;
 }
 
 // Allowed inline tags and their attributes (see plan §2).
@@ -269,12 +278,18 @@ function mcpSanitizeCover($cover): ?array {
 // ── Block normalizer ───────────────────────
 
 // Turn YouTube/Vimeo watch links into embed URLs (like VideoTool._toEmbed).
+// Only the embed forms the editor itself produces are accepted (YouTube
+// /embed/<id>, also on youtube-nocookie.com, and player.vimeo.com/video/<id>,
+// each with an optional query string); anything else → '' (rejected).
 function mcpVideoEmbedUrl(string $url): string {
     $url = mcpSanitizeUrl($url, false);
     if ($url === '' || !preg_match('#^https?://#i', $url)) return '';
     if (preg_match('#(?:youtube\.com/watch\?(?:.*&)?v=|youtu\.be/)([\w-]+)#', $url, $m)) return 'https://www.youtube.com/embed/' . $m[1];
     if (preg_match('#vimeo\.com/(\d+)#', $url, $m) && stripos($url, 'player.vimeo.com') === false) return 'https://player.vimeo.com/video/' . $m[1];
-    return $url;
+    if (preg_match('#^https?://((?:www\.)?youtube(?:-nocookie)?\.com/embed/[\w-]+|player\.vimeo\.com/video/\d+)/?(\?[^\#]*)?(\#.*)?$#i', $url, $m)) {
+        return 'https://' . $m[1] . ($m[2] ?? '') . ($m[3] ?? '');
+    }
+    return '';
 }
 
 function mcpNormalizeListItems($items, string $path, int $depth = 0): array {
@@ -416,7 +431,7 @@ function mcpNormalizeBlockData(string $type, array $d, string $path): array {
                 return $out;
             }
             $out['embedUrl'] = mcpVideoEmbedUrl($embed);
-            if ($out['embedUrl'] === '') throw new McpToolError("$path.data needs embedUrl (YouTube/Vimeo, https) or src (uploaded video)");
+            if ($out['embedUrl'] === '') throw new McpToolError("$path.data needs embedUrl or src (uploaded video). embedUrl must be a YouTube or Vimeo link: youtube.com/watch?v=…, youtu.be/…, vimeo.com/<id>, or an embed URL https://www.youtube.com/embed/<id>, https://www.youtube-nocookie.com/embed/<id> or https://player.vimeo.com/video/<id>; other hosts are not allowed");
             $out['url'] = $orig !== '' ? mcpSanitizeUrl($orig, false) : $out['embedUrl'];
             return $out;
 
@@ -1599,7 +1614,7 @@ get_page adds is ignored on write.
 | warning | callout: {type: "info"/"tip"/"warning"/"danger" (default info), title, message} | inline HTML |
 | timeline | {numbered: bool, items: [{date, title, desc}]} | plain text; "\n" in desc = line break |
 | collapse | {title, body, open: bool} - expandable section | plain text; "\n" in body = line break |
-| video | {embedUrl} YouTube/Vimeo (watch links like youtube.com/watch?v=… are converted), or {src, filename, mime} for an uploaded video (/videos/vid_….mp4, mime video/mp4, video/webm or video/ogg) | - |
+| video | {embedUrl} YouTube/Vimeo only (watch links like youtube.com/watch?v=…, youtu.be/…, vimeo.com/<id> are converted; embed URLs youtube.com/embed/…, youtube-nocookie.com/embed/…, player.vimeo.com/video/… are kept; other hosts are rejected), or {src, filename, mime} for an uploaded video (/videos/vid_….mp4, mime video/mp4, video/webm or video/ogg) | - |
 | cards | {cols: 2/3/4 (default 3), cards: [{icon, title, desc, link}]} - icon: Font Awesome name like "fa-rocket"; link: a page id or an https:// URL (optional) | plain text |
 
 "Plain text" fields: tags are removed, write text only.
@@ -1611,6 +1626,8 @@ Allowed: <b> <strong> <i> <em> <u> <s> <br>, <mark class="cdx-marker"> (highligh
 Any other tag is escaped and shows up as text (no <p>, <div>, <span>, <img>, <h1>);
 other attributes (style, on*, …) are dropped. Write literal & < > as &amp; &lt; &gt;.
 Link URLs must be http(s), mailto, relative or #anchor; anything else is removed.
+In every URL field (links, image url, cover, video src/embedUrl, card links) spaces,
+quotes, < > ` and \ are stored percent-encoded (%20, %22, …).
 
 - Link to another page: <a href="?page=PAGE_ID" data-page-id="PAGE_ID">Label</a>
 - External link: <a href="https://example.com" target="_blank" rel="noopener">Label</a>
@@ -1633,6 +1650,7 @@ Videos (mp4, webm, ogg) are uploaded only through the raw endpoint; use PUT for 
      {{RAW_VIDEO}}
 The answer contains a ready block {"type": "video", "data": {"src", "filename", "mime"}}.
 For YouTube/Vimeo use {"type": "video", "data": {"embedUrl": "https://www.youtube.com/watch?v=…"}}.
+Other video hosts cannot be embedded.
 
 Page cover (create_page / update_page "cover"; null removes it):
 - {"type": "color", "value": "#7c3aed"} or {"type": "color", "value": "linear-gradient(135deg,#f97316,#7c3aed)"}

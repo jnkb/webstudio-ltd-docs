@@ -1951,8 +1951,8 @@ function renderPage() {
   breadParts.push(`<span>${esc(page.title)}</span>`);
 
   view.innerHTML = `
-    ${page.cover ? `<div class="page-cover" id="page-cover-el" style="${page.cover.type==='color' ? 'background:'+page.cover.value : ''}">
-      ${page.cover.type==='image' ? `<img src="${page.cover.value}" alt="" style="object-fit:${page.cover.fit||'cover'};object-position:${page.cover.position||'50% 50%'}">` : ''}
+    ${page.cover ? `<div class="page-cover" id="page-cover-el" style="${page.cover.type==='color' ? 'background:'+esc(page.cover.value) : ''}">
+      ${page.cover.type==='image' ? `<img src="${esc(page.cover.value)}" alt="" style="object-fit:${esc(page.cover.fit||'cover')};object-position:${esc(page.cover.position||'50% 50%')}">` : ''}
       ${S.editMode ? `<div class="page-cover-actions">
         <button class="page-cover-btn" onclick="changeCover()"><i class="fa-solid fa-image"></i> ${t('coverChange')}</button>
         <button class="page-cover-btn" onclick="removeCover()"><i class="fa-solid fa-trash"></i> ${t('coverRemove')}</button>
@@ -3019,7 +3019,7 @@ class VideoTool {
     this._el.appendChild(bar);
   }
   _renderEmbed() {
-    this._el.innerHTML = `<iframe src="${this.data.embedUrl}" allowfullscreen allow="autoplay; encrypted-media"></iframe>`;
+    this._el.innerHTML = `<iframe src="${esc(this.data.embedUrl)}" allowfullscreen allow="autoplay; encrypted-media"></iframe>`;
     this._appendReplaceBar();
   }
   _renderFileVideo() {

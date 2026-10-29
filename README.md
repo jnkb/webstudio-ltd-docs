@@ -410,7 +410,7 @@ The endpoint takes the file itself as the request body (`POST` or `PUT`, not a m
 - **A token has full admin rights for content.** Anyone who holds it can create, change, and delete pages, spaces, settings, and images. Treat it like your admin password, and give each agent or machine its own token so you can revoke it on its own.
 - **Revoke** unused or leaked tokens in Settings → AI agents (MCP). Revoked or unknown tokens get `401 Unauthorized`.
 - **Only a SHA-256 hash is stored** in `data/mcp_tokens.json` (protected like the rest of `data/`). The plain token cannot be recovered — create a new one if it gets lost.
-- **Everything an agent writes is sanitized on the server**: inline HTML is reduced to a whitelist of tags and attributes, links are limited to safe schemes, and icons and cover values are validated. A prompt-injected agent cannot plant scripts in your public docs or in the editor.
+- **Everything an agent writes is sanitized on the server**: inline HTML is reduced to a whitelist of tags and attributes, links are limited to safe schemes, URLs are percent-encoded so they cannot break out of HTML attributes, video embeds are limited to YouTube and Vimeo, and icons and cover values are validated. A prompt-injected agent cannot plant scripts in your public docs or in the editor.
 - The bearer token replaces the optional access gate for `mcp.php`; agents do not need the access cookie.
 
 ### Known limitations
