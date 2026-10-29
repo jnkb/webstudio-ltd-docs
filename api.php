@@ -233,11 +233,16 @@ case 'load':
         foreach (pageJsonFiles() as $file) {
             $page = jsonRead($file);
             if (!$page) continue;
-            // Public visitors never see pages flagged as draft. (Backward
-            // compatible: pages without the flag behave exactly as before.)
-            if (!$authed && !empty($page['draft'])) continue;
             $pages[] = $page;
         }
+    }
+    // Public visitors never see drafts, nor any page below a draft (a draft
+    // hides its whole subtree). Logged-in admins see everything.
+    if (!$authed) {
+        $hidden = publiclyHiddenPageIds($pages);
+        $pages = array_values(array_filter($pages, function ($p) use ($hidden) {
+            return empty($p['draft']) && !isset($hidden[$p['id'] ?? '']);
+        }));
     }
     // Public visitors get only render-safe settings, not the whole config blob.
     if (!$authed) $settings = publicSettings($settings);
@@ -250,8 +255,9 @@ case 'load_page':
     if (!$id) err('Missing id');
     $page = jsonRead(pageFilePath($id));
     if (!$page) err('Page not found', 404);
-    // Same 404 as a missing page so drafts can't be probed by id.
-    if (!$authed && !empty($page['draft'])) err('Page not found', 404);
+    // Same 404 as a missing page so drafts (and pages below a draft) can't be
+    // probed by id.
+    if (!$authed && (!empty($page['draft']) || pageIsPubliclyHidden($id))) err('Page not found', 404);
     $response = ['page' => $page];
     if ($authed) {
         $summary = loadRatingSummary($id);
@@ -270,6 +276,7 @@ case 'save_rating':
     if (!$id) err('Missing id');
     if ($rating === null) err('Invalid rating');
     if (!file_exists(pageFilePath($id))) err('Page not found', 404);
+    if (!$authed && pageIsPubliclyHidden($id)) err('Page not found', 404);
 
     $summary = loadRatingSummary($id);
     $anonIp = anonymizeIp(getClientIp());

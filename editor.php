@@ -1,5 +1,7 @@
 <?php
 require __DIR__ . '/access_guard.php';
+// Shared storage helpers; used here for pageIsPubliclyHidden().
+require __DIR__ . '/storage.php';
 
 /**
  * Server-side OG meta tags for social media crawlers.
@@ -26,6 +28,9 @@ $_ogData = (function() {
 
     if ($pageId) {
         $page = $readJson($pagesDir . "/{$pageId}.json");
+        // Drafts and pages below a draft are not public: same meta as for a
+        // page that does not exist (no title/subtitle/cover leak).
+        if ($page && pageIsPubliclyHidden($pageId)) $page = null;
     }
 
     // Fallback: first page of first space
@@ -35,7 +40,7 @@ $_ogData = (function() {
             $sid = $spaces[0]['id'] ?? '';
             foreach (glob($pagesDir . '/*.json') ?: [] as $f) {
                 $p = $readJson($f);
-                if ($p && ($p['spaceId'] ?? '') === $sid && empty($p['parentId'])) {
+                if ($p && empty($p['draft']) && ($p['spaceId'] ?? '') === $sid && empty($p['parentId'])) {
                     if (!$page || ($p['order'] ?? 0) < ($page['order'] ?? 0)) $page = $p;
                 }
             }

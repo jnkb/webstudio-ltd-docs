@@ -2,7 +2,7 @@
 /**
  * ╔══════════════════════════════════════════════════════════╗
  * ║  Webstudio Docs — storage.php                            ║
- * ║  Shared file-storage helpers (api.php, mcp.php)          ║
+ * ║  Shared file-storage helpers (api.php, mcp.php, viewer)  ║
  * ╚══════════════════════════════════════════════════════════╝
  *
  * Contract: this file only defines constants and functions. It prints
@@ -231,6 +231,47 @@ function pageJsonFiles() {
     return array_values(array_filter(glob(PAGES_DIR . '/*.json') ?: [], function ($path) {
         return !preg_match('/_rating\.json$/', basename($path));
     }));
+}
+
+// ── Public visibility ──────────────────────
+// A draft hides itself and its whole subtree from the public (not logged-in)
+// viewer and API. Given page arrays (metadata is enough: id, parentId,
+// draft), returns [id => true] for every publicly hidden page: the drafts
+// plus all their descendants. A parentId that points to a missing page ends
+// the walk; parent cycles are detected (a cycle without a draft hides nothing).
+function publiclyHiddenPageIds(array $pages): array {
+    $byId = [];
+    foreach ($pages as $p) {
+        if (is_array($p) && is_string($p['id'] ?? null) && $p['id'] !== '') $byId[$p['id']] = $p;
+    }
+    $hidden = [];
+    foreach ($byId as $id => $p) {
+        $seen = [];
+        for ($cur = $id; $cur !== null && isset($byId[$cur]) && !isset($seen[$cur]); ) {
+            if (isset($hidden[$cur]) || !empty($byId[$cur]['draft'])) { $hidden[$id] = true; break; }
+            $seen[$cur] = true;
+            $pid = $byId[$cur]['parentId'] ?? null;
+            $cur = is_string($pid) && $pid !== '' ? $pid : null;
+        }
+    }
+    return $hidden;
+}
+
+// Same rule for one page without reading every page file: loads $id and its
+// ancestors from PAGES_DIR (cycle-safe) and applies publiclyHiddenPageIds().
+// A page that does not exist is not "hidden"; callers answer 404 for it anyway.
+function pageIsPubliclyHidden($id): bool {
+    $id = sanitizePageId((string)$id);
+    $chain = [];
+    for ($cur = $id; $cur !== '' && !isset($chain[$cur]); ) {
+        $p = jsonRead(pageFilePath($cur));
+        if (!is_array($p)) break;
+        $p['id'] = $cur;
+        $chain[$cur] = $p;
+        $pid = $p['parentId'] ?? null;
+        $cur = is_string($pid) && $pid === sanitizePageId($pid) ? $pid : '';
+    }
+    return isset(publiclyHiddenPageIds(array_values($chain))[$id]);
 }
 
 // Change a page's id (moves the page file + ratings, re-parents direct

@@ -1406,7 +1406,7 @@ $MCP_RO = ['readOnlyHint' => true, 'destructiveHint' => false, 'idempotentHint' 
 mcpTool('list_pages', [
     'title'       => 'List page tree',
     'description' => 'Page tree per space, in sidebar order: root pages grouped into sections (section null = no section, groups in order of first appearance), subpages nested in children. Metadata only, no content (use get_page). '
-                   . 'include_drafts=false shows the public sidebar (drafts and their subpages are left out; subpages that are not drafts themselves are still public by URL). Pages the sidebar cannot show (unknown space, missing parent, cycle) are listed under "unreachable".',
+                   . 'include_drafts=false shows what the public sees (drafts and all their subpages are left out: a draft hides its whole subtree). Pages the sidebar cannot show (unknown space, missing parent, cycle) are listed under "unreachable".',
     'inputSchema' => ['type' => 'object', 'properties' => [
         'space_id'       => ['type' => 'string', 'description' => 'Only this space (id from get_site). Default: all spaces.'],
         'include_drafts' => ['type' => 'boolean', 'description' => 'Include draft pages (default true).', 'default' => true],
@@ -1742,9 +1742,8 @@ Page cover (create_page / update_page "cover"; null removes it):
   group). Subpages never have a section. Groups appear in the order of their first page;
   a new root page with an existing section is placed behind that section's last page.
 - Siblings are ordered by "order" (0..n-1). Use position on create/move, or reorder_pages.
-- draft: true hides only that page from the public viewer. Its subpages drop out of the
-  public sidebar, but stay public by URL (index.php?page=ID) and via the API. To hide
-  a whole subtree, set draft: true on every subpage too.
+- draft: true hides the page and all its subpages from the public (sidebar, URL
+  index.php?page=ID, search and API). Logged-in editors still see them.
 - Page ids: lowercase a-z, 0-9, "-", "_" (max 60), derived from the title if not given.
   They are part of the URL: index.php?page=ID.
 
@@ -1847,7 +1846,7 @@ mcpTool('create_page', [
         'subtitle'  => ['type' => 'string', 'description' => 'Short description under the title (plain text)'],
         'blocks'    => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'EditorJS blocks [{type, data}], see get_content_guide'],
         'cover'     => ['type' => ['object', 'null'], 'description' => 'Cover: {type:"color", value} or {type:"image", value, fit?, position?}'],
-        'draft'     => ['type' => 'boolean', 'description' => 'Hide from the public viewer (default false)'],
+        'draft'     => ['type' => 'boolean', 'description' => 'Hide this page and all its subpages from the public viewer (default false)'],
         'position'  => ['type' => 'integer', 'minimum' => 0, 'description' => $MCP_POSITION_DOC],
     ], 'required' => ['title'], 'additionalProperties' => false],
     'annotations' => ['readOnlyHint' => false, 'destructiveHint' => false, 'idempotentHint' => false, 'openWorldHint' => false],
@@ -2764,7 +2763,7 @@ function mcpInstructions(): string {
         '  ' . mcpRawUploadExample(),
         'Videos (mp4/webm/ogg) only via the raw endpoint with upload=video; use PUT for big files: curl -T video.mp4 -H "Authorization: Bearer <TOKEN>" "' . $base . '/mcp.php?upload=video&filename=video.mp4".',
         'Or use a video block with an embedUrl (YouTube/Vimeo links or another host\'s embed URL). delete_image refuses images that pages still use (force=true overrides).',
-        'Pages are public at ' . $base . '/index.php?page=<id> unless draft is true; humans edit at ' . $base . '/editor.php.',
+        'Pages are public at ' . $base . '/index.php?page=<id> unless the page or one of its parent pages is a draft; humans edit at ' . $base . '/editor.php.',
         'If a human has the editor open, ask them to reload it after your changes.',
     ]);
 }
