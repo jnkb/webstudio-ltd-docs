@@ -1,3 +1,4 @@
 data/
 images/
 .DS_Store
+.playwright-mcp/

@@ -10,17 +10,22 @@ Use this file as the default working context for changes in this repository. Kee
 - The app is split into two entry points: [index.php](index.php) is the public read-only viewer (no EditorJS), and [editor.php](editor.php) is the full editor/admin UI.
 - Shared front-end assets live in `assets/`: [assets/app.css](assets/app.css) (styles), [assets/i18n.js](assets/i18n.js) (icon list + `TRANSLATIONS` + `DEFAULT_INTERFACE_LANG` + `LANG_LOCALES`), and [assets/shared.js](assets/shared.js) (shared vanilla-JS helpers used by both entry points: i18n `t()`/`applyTranslations()`, utilities like `esc`/`showToast`/`formatDate`, settings/theme helpers, translate widget, TOC/scroll-spy, feedback, search helpers, OG image, mobile/reading-mode/share, hover preview, and reader-level keyboard shortcuts). Both [index.php](index.php) and [editor.php](editor.php) link these files in order: `i18n.js` → `shared.js` → inline script.
 - For product overview, setup, screenshots, and roadmap, prefer [README.md](README.md) instead of duplicating it here.
+- For MCP setup, the tool overview, uploads, security, and troubleshooting for humans, see [MCP.md](MCP.md). The README only keeps a short MCP quick start that links there.
 
 ## Primary files
 
 - [index.php](index.php): public read-only viewer. Server-side OG/meta generation, then a slim vanilla-JS client that loads data and renders saved page content WITHOUT EditorJS (custom `renderBlocks()` mirrors EditorJS DOM/classes). No login, editing, settings, or EditorJS dependency.
 - [editor.php](editor.php): the full single-file editor app (the original `index.php`). EditorJS-based editing, auth modal flows, settings, page/space CRUD. Open it directly to edit; visitors never need it.
 - [api.php](api.php): JSON API for loading and saving spaces, settings, pages, and images. `load`, `load_page`, and `save_rating` are public; mutations require auth.
-- [auth.php](auth.php): setup wizard, login/logout, session state, password hashing, rate limiting.
+- [auth.php](auth.php): setup wizard, login/logout, session state, password hashing, file-backed per-IP rate limiting (`data/ratelimit.json`).
+- [access_guard.php](access_guard.php): optional token/cookie access gate (`data/access_key.txt`) and `DOCS_INSTANCE_HASH`, the per-install suffix for cookie and session names. Loaded by every entry point except [mcp.php](mcp.php).
+- [storage.php](storage.php): include-only storage helpers shared by [api.php](api.php) and [mcp.php](mcp.php) (dir constants, JSON read/write, page paths/IDs, trash, upload MIME checks, `verifyUploadedImage()` integrity check used by every image upload path, `renameStoredPage()`, MCP token store, MCP upload tickets). It prints nothing and calls `err()`, which each entry point defines itself (api.php: JSON error + exit; mcp.php: throws `McpToolError`). Blocked from the web via `.htaccess` and a self-check.
+- [mcp.php](mcp.php): MCP server for AI agents (Streamable HTTP, POST + JSON only, JSON-RPC dispatcher, 23 tools registered with `mcpTool()`, raw image/video upload via `?upload=image|video`). Auth is `Authorization: Bearer wsd_…`, except raw uploads with `&ticket=wsu_…` (single-use, 15 min, from `create_upload_url`, hashes in `data/mcp_upload_tickets.json`, consumed before the body is read); tokens are created in editor settings (`#settings-mcp-section`, `mcp_token*` actions in api.php) and stored as SHA-256 hashes only in `data/mcp_tokens.json`. It intentionally does not load `access_guard.php` (the bearer token replaces the access cookie). `mcpInstructions()` and `mcpContentGuide()` are what agents read — keep them in sync with tool behavior. [MCP.md](MCP.md) is the human-facing guide: when you add, rename, or change a tool, a limit, an upload path, or a security rule, update it (and the tool table in the README) too.
 - [assets/app.css](assets/app.css), [assets/i18n.js](assets/i18n.js), [assets/shared.js](assets/shared.js): shared CSS, i18n/constants, and shared vanilla-JS helpers linked by both [index.php](index.php) and [editor.php](editor.php).
 - [assets/markdown-import.js](assets/markdown-import.js): editor-only Markdown → EditorJS block converter (`markdownToBlocks`, `looksLikeMarkdown`), linked after `shared.js` by [editor.php](editor.php) only. Used for Markdown paste into paragraph blocks and `.md` file drops that create pages. It must only emit block types/data the editor tools and the viewer's `renderBlocks()` already support; it also runs under Node (`module.exports`) for quick checks.
 - [assets/markdown-export.js](assets/markdown-export.js): the reverse direction — EditorJS page data → Markdown (`pageToMarkdown`, `markdownFileName`), linked by both [index.php](index.php) and [editor.php](editor.php). Powers the `.md` download button next to Share in the page sidebar (independent of the share-section setting) (`downloadPageMarkdown()` in `shared.js`). Emits syntax the importer reads back (GitHub alerts, `==mark==`, `<details>`); also runs under Node.
-- [data/](data/): persisted site settings, spaces, auth data, and one JSON file per page.
+- [data/](data/): persisted site settings, spaces, auth data, rate-limit state, MCP token and upload-ticket hashes, one JSON file per page (`pages/`), archived pages (`trash/pages/`), and chunked-upload parts (`tmp_uploads/`).
+- `images/` (uploads, `og/` for generated share images) and `videos/`: public upload directories.
 - [.htaccess](.htaccess): Apache routing and protection expectations.
 
 ## Architecture notes
@@ -28,6 +33,8 @@ Use this file as the default working context for changes in this repository. Kee
 - [index.php](index.php) (viewer) and [editor.php](editor.php) (editor) share the same data contract, OG/meta head, layout, and `assets/app.css` / `assets/i18n.js` / `assets/shared.js`. Keep their shared behavior in sync when relevant.
 - The viewer renders page content with a custom `renderBlocks()` that emits the same classes EditorJS produced (`.ce-block`, `.ce-header`, `.cdx-list`, `.callout-block`, `.tl-*`, etc.) so `assets/app.css` styles it identically. Do NOT add an EditorJS dependency to `index.php`.
 - Client state lives in the global `S` object in each file. Prefer local, incremental changes over introducing abstractions.
+- [index.php](index.php) and [editor.php](editor.php) each define their own versions of some functions that [assets/shared.js](assets/shared.js) calls (e.g. `react()`, `handleSearch()`). When you change a shared helper, check both entry points.
+- In the editor, `save()` persists spaces and settings, `savePageToServer()` persists page content. Keep the two paths separate.
 - Page content is lazy-loaded: `api.php?action=load` returns metadata, `api.php?action=load_page&id=...` returns full content.
 - Persisted pages are individual files in `data/pages/<id>.json`; page IDs are part of filenames, URLs, and client state.
 
@@ -35,10 +42,10 @@ Use this file as the default working context for changes in this repository. Kee
 
 - Keep the flat architecture. Do not add frameworks, build tooling, or large dependency layers.
 - Preserve file-based JSON storage unless a task explicitly requires redesign.
-- Any user-facing text added to the UI should go through `TRANSLATIONS`, `t()`, and `applyTranslations()` in [index.php](index.php) instead of scattered hardcoded strings.
+- Any user-facing text added to the UI should go through `TRANSLATIONS` in [assets/i18n.js](assets/i18n.js) and `t()` / `applyTranslations()` in [assets/shared.js](assets/shared.js) instead of scattered hardcoded strings. Add new keys to all built-in languages (`en`, `de`, `sk`).
 - Keep default/source UI copy in English unless the task explicitly requires translation changes.
-- Maintain page ID safety. Existing PHP code sanitizes IDs to `[A-Za-z0-9_-]`; do not introduce slash-based or arbitrary IDs without updating the full storage and routing model.
-- Mutating API actions should continue to require auth and use same-origin requests.
+- Maintain page ID safety. Existing PHP code sanitizes IDs to `[A-Za-z0-9_-]` (MCP only creates lowercase IDs, max. 60 characters); do not introduce slash-based or arbitrary IDs without updating the full storage and routing model.
+- Mutating API actions should continue to require auth and use same-origin requests. [mcp.php](mcp.php) is the exception: it uses bearer-token auth on every request (no session/cookie) and must keep rejecting missing or revoked tokens with 401.
 - Preserve readable JSON output with UTF-8 and pretty printing.
 
 ## Pitfalls worth checking
@@ -46,8 +53,13 @@ Use this file as the default working context for changes in this repository. Kee
 - OG image generation in [index.php](index.php) must still behave when GD helpers such as `imagecreatetruecolor` are unavailable.
 - Cover image URLs may be relative; when changing sharing/preview logic, keep relative-to-absolute URL handling intact.
 - `data/` must stay protected from direct access. Changes that create or move persisted files must keep the protection story working.
-- `data/` and `images/` must be writable on the host. If a bug smells environment-specific, check permissions before deeper refactors.
-- Login state depends on the shared `docs_auth` session cookie behavior across [api.php](api.php) and [auth.php](auth.php).
+- `data/`, `images/`, and `videos/` must be writable on the host. If a bug smells environment-specific, check permissions before deeper refactors.
+- Successful logins and setup call `session_regenerate_id(true)`; keep that, and keep bcrypt hashing and the rate limiter, when touching auth.
+- Login state depends on the shared session cookie `docs_auth_<DOCS_INSTANCE_HASH>` (`SESSION_NAME`, defined in both [api.php](api.php) and [auth.php](auth.php)); keep both definitions and cookie settings identical.
+- The viewer renders HTML fields (`paragraph.text`, `warning.message`, icons, cover colors, …) unfiltered. Every MCP write must go through `mcpNormalizeBlocks()` and the `mcpSanitize*` helpers (`mcpSanitizeInlineHtml`, `mcpSanitizeUrl`, `mcpSanitizeIcon`, `mcpSanitizeCover`, `mcpSanitizeText`); never store agent input directly. New block types or fields need matching normalizer support.
+- `mcp.php` bearer auth needs the `Authorization` header passthrough in [.htaccess](.htaccess) on FPM/CGI hosts; keep that rule ahead of the `data/` rule.
+- Drafts hide their whole subtree from the public. Every unauthenticated read path (api.php `load`/`load_page`/`save_rating`, the OG/meta head of [index.php](index.php) and [editor.php](editor.php)) must use `publiclyHiddenPageIds()` / `pageIsPubliclyHidden()` from [storage.php](storage.php). The editor has no draft toggle; drafts are set through MCP.
+- Every new image upload path must call `verifyUploadedImage()` (only the editor's SVG upload skips it; MCP refuses SVG). Server-side downloads of agent-supplied URLs must go through `mcpDownloadTarget()` / `mcpDownloadToFile()` (public addresses only, pinned connection, re-checked on each redirect).
 
 ## Validation
 
@@ -58,11 +70,17 @@ php -l index.php
 php -l editor.php
 php -l api.php
 php -l auth.php
+php -l access_guard.php
+php -l storage.php
+php -l mcp.php
 node --check assets/i18n.js
+node --check assets/shared.js
 node --check assets/markdown-import.js
 node --check assets/markdown-export.js
 php -r 'foreach (glob("data/*.json") as $f) { json_decode(file_get_contents($f)); if (json_last_error()) { fwrite(STDERR, "$f\n"); exit(1); } }'
 php -r 'foreach (glob("data/pages/*.json") as $f) { json_decode(file_get_contents($f)); if (json_last_error()) { fwrite(STDERR, "$f\n"); exit(1); } }'
+# MCP: tool registry loads without HTTP (MCP_NO_MAIN skips the request handler)
+php -r 'define("MCP_NO_MAIN", true); require "mcp.php"; echo count($GLOBALS["MCP_TOOLS"]), " tools\n";'
 ```
 
 If the change affects behavior, also verify it manually in a browser:
@@ -71,10 +89,11 @@ If the change affects behavior, also verify it manually in a browser:
 - create/edit/save/reload a page
 - page navigation via `?page=...`
 - image upload or cover image behavior when relevant
+- for [mcp.php](mcp.php) changes: a `tools/list` and one write call with a real token (see the curl test in [MCP.md](MCP.md#test-with-curl)); without a token the endpoint must answer `401`
 
 ## Scope guidance for agents
 
 - Prefer surgical edits in the owning file instead of cross-file rewrites.
-- When fixing bugs, inspect the nearest deciding code path first: auth in [auth.php](auth.php), persistence in [api.php](api.php), viewer UI in [index.php](index.php), editor UI in [editor.php](editor.php).
+- When fixing bugs, inspect the nearest deciding code path first: auth in [auth.php](auth.php), persistence in [api.php](api.php), viewer UI in [index.php](index.php), editor UI in [editor.php](editor.php), shared storage and upload checks in [storage.php](storage.php), agent access in [mcp.php](mcp.php).
 - If you change shared rendering, styling, or translations, check whether both [index.php](index.php) and [editor.php](editor.php) (and `assets/`) need the change.
 - Do not treat the README roadmap as an instruction to implement features unless the current task explicitly asks for them.
