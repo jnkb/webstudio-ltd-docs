@@ -40,8 +40,10 @@ $action = $_GET['action'] ?? $_POST['action'] ?? '';
 // else in settings.json stays admin-only instead of being dumped by ?action=load.
 function publicSettings($s) {
     if (!is_array($s)) return [];
+    // Keep in sync with what index.php reads from S.settings.
     $allow = ['siteName','tabTitle','accentColor','theme','lang',
-              'logoDataUrl','faviconDataUrl','footerText'];
+              'logoDataUrl','faviconDataUrl','footerText','footerTailHtml',
+              'hideSingleSpaceTabs','shareSectionEnabled','translateEnabled'];
     $out = [];
     foreach ($allow as $k) {
         if (array_key_exists($k, $s)) $out[$k] = $s[$k];

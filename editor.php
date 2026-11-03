@@ -1,7 +1,9 @@
 <?php
 require __DIR__ . '/access_guard.php';
-// Shared storage helpers; used here for pageIsPubliclyHidden().
+// Shared storage helpers; used here for pageIsPubliclyHidden() and assetUrl().
 require __DIR__ . '/storage.php';
+// Always revalidate the HTML so new ?v= asset URLs reach the browser.
+header('Cache-Control: no-cache');
 
 /**
  * Server-side OG meta tags for social media crawlers.
@@ -236,11 +238,11 @@ $_ogData = (function() {
 <script src="https://cdn.jsdelivr.net/npm/@editorjs/table@2.3.0"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
-<link rel="stylesheet" href="assets/app.css">
-<script src="assets/i18n.js"></script>
-<script src="assets/shared.js"></script>
-<script src="assets/markdown-import.js"></script>
-<script src="assets/markdown-export.js"></script>
+<link rel="stylesheet" href="<?= assetUrl('assets/app.css') ?>">
+<script src="<?= assetUrl('assets/i18n.js') ?>"></script>
+<script src="<?= assetUrl('assets/shared.js') ?>"></script>
+<script src="<?= assetUrl('assets/markdown-import.js') ?>"></script>
+<script src="<?= assetUrl('assets/markdown-export.js') ?>"></script>
 </head>
 <body>
 <!-- Google Translate init element — musí byť v DOM, schovaný offscreen -->

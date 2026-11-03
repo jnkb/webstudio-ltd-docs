@@ -1,7 +1,9 @@
 <?php
 require __DIR__ . '/access_guard.php';
-// Shared storage helpers; used here for pageIsPubliclyHidden().
+// Shared storage helpers; used here for pageIsPubliclyHidden() and assetUrl().
 require __DIR__ . '/storage.php';
+// Always revalidate the HTML so new ?v= asset URLs reach the browser.
+header('Cache-Control: no-cache');
 
 /**
  * Server-side OG meta tags for social media crawlers.
@@ -224,13 +226,13 @@ $_ogData = (function() {
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" id="prism-theme">
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/app.css">
+<link rel="stylesheet" href="<?= assetUrl('assets/app.css') ?>">
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
-<script src="assets/i18n.js"></script>
-<script src="assets/shared.js"></script>
-<script src="assets/markdown-export.js"></script>
+<script src="<?= assetUrl('assets/i18n.js') ?>"></script>
+<script src="<?= assetUrl('assets/shared.js') ?>"></script>
+<script src="<?= assetUrl('assets/markdown-export.js') ?>"></script>
 </head>
 <body>
 <!-- Google Translate init element — musí byť v DOM, schovaný offscreen -->
@@ -394,10 +396,10 @@ $_ogData = (function() {
     .ce-code .viewer-code code{background:transparent !important;font-family:var(--mono);font-size:13px;line-height:1.6;text-shadow:none !important;white-space:pre;}
     [data-theme="dark"] .ce-code .viewer-code code:not([class*="language-"]){color:#7dd3fc;}
     [data-theme="light"] .ce-code .viewer-code code:not([class*="language-"]){color:#0f4c81;}
+    .tc-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
     .tc-table{border-collapse:collapse;width:100%;}
     .tc-cell{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top;}
     .tc-table th.tc-cell{background:var(--bg3);font-weight:600;}
-    .page-hero .page-icon{cursor:default;}
     .page-title-input{margin:0;}
   `;
   const st = document.createElement('style');

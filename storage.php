@@ -30,6 +30,14 @@ defined('VIDEO_MAX_BYTES')       || define('VIDEO_MAX_BYTES', 2 * 1024 * 1024 * 
 defined('VIDEO_CHUNK_MAX_BYTES') || define('VIDEO_CHUNK_MAX_BYTES', 8 * 1024 * 1024);
 
 // ── Helper functions ────────────────────────
+
+// URL of a local asset (e.g. "assets/app.css") with its modification time as
+// cache-busting parameter: browsers keep the file cached until it changes.
+function assetUrl($path) {
+    $mtime = @filemtime(__DIR__ . '/' . $path);
+    return htmlspecialchars($path . ($mtime ? '?v=' . $mtime : ''), ENT_QUOTES, 'UTF-8');
+}
+
 function ensureDirs() {
     foreach ([DATA_DIR, PAGES_DIR, TRASH_DIR, PAGES_TRASH_DIR, IMAGES_DIR, VIDEOS_DIR, TMP_UPLOADS_DIR] as $dir) {
         if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {
