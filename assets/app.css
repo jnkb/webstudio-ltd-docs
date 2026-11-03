@@ -395,10 +395,10 @@ body {
 .breadcrumb i.fa-chevron-right { font-size: 8px; color: var(--text4); }
 
 .page-hero { display: flex; align-items: flex-start; gap: 14px; }
-/* Viewer: no page icon, title flush left, reading time on the right */
-.page-hero-viewer { align-items: center; gap: 12px; }
-.page-hero-viewer .page-title-input { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.page-hero-viewer .reading-time { margin-left: auto; }
+/* Page header without icon: title flush left, meta (cover button, reading time) on the right */
+.page-hero-plain { align-items: center; gap: 12px; }
+.page-hero-plain .page-title-input { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.page-hero-meta { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-shrink: 0; }
 
 /* ── Page Cover ── */
 .page-cover {
@@ -432,6 +432,7 @@ body {
 .page-cover:hover .cover-pos-panel { opacity: 1; }
 [data-edit="1"] .cover-pos-panel { opacity: 1; }
 .cover-pos-label { font-size: 11px; color: rgba(255,255,255,.7); white-space: nowrap; }
+.cover-pos-drag-icon { font-size: 11px; color: rgba(255,255,255,.7); cursor: help; }
 .cover-pos-btns { display: flex; gap: 4px; }
 .cover-pos-btn {
   font-size: 10px; padding: 3px 8px; border-radius: 5px;
@@ -541,6 +542,9 @@ body {
   color-scheme: dark;
 }
 .codex-editor__redactor { padding-bottom: 24px !important; }
+/* Blocks use the full content width (EditorJS caps them at 650px and centers
+   them), so the editor lines up with title, subtitle and the public viewer. */
+.ce-block__content, .ce-toolbar__content { max-width: none !important; margin-left: 0 !important; margin-right: 0 !important; }
 /* Toolbar in natural left gutter via negative positioning — content stays full width */
 .ce-toolbar__actions { position: absolute !important; right: 100% !important; left: auto !important; top: 0 !important; padding-right: 6px !important; display: flex !important; gap: 2px !important; }
 
@@ -801,6 +805,7 @@ h3.ce-header { font-size: 17px; font-weight: 600; margin: 0 0 2px; }
 
 /* Table */
 .tc-wrap { --color-border: var(--border) !important; }
+body:not([data-edit]) .tc-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .tc-table { color: var(--text) !important; }
 .tc-cell { background: var(--bg) !important; color: var(--text) !important; border-color: var(--border) !important; }
 .tc-add-column, .tc-add-row { color: var(--text2) !important; background: var(--bg3) !important; }
@@ -1902,9 +1907,29 @@ body { top: 0 !important; }
   .content-wrap { padding: 28px 20px 24px; }
   .toc-panel { padding: 0 20px 80px; }
   .page-title-input { font-size: 26px; }
-  .page-hero-viewer { flex-direction: column; align-items: flex-start; gap: 2px; }
-  .page-hero-viewer .reading-time { margin-left: 0; }
+  /* Reading time (and the editor's cover button) above the title, so title and subtitle stay together */
+  .page-hero-plain { flex-direction: column-reverse; align-items: stretch; gap: 2px; }
+  .page-hero-meta { margin-left: 0; flex-wrap: wrap; }
   body.reading-mode .content-wrap { padding-left: 20px; padding-right: 20px; }
+  /* Editor in edit mode: room on the left for the + and drag handle */
+  body[data-edit] .content-wrap { padding-left: 72px; }
+  /* Editor header: icon-only buttons (labels stay for screen readers) */
+  .nav-right .btn, .nav-right .auth-nav-btn { width: 34px; height: 34px; padding: 0; gap: 0; justify-content: center; flex-shrink: 0; }
+  .nav-right .btn > span, .nav-right .auth-nav-btn > span {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap;
+  }
+  .nav-right .nav-divider, #undo-btn, #redo-btn { display: none !important; }
+  /* Dialogs and settings fit the screen */
+  .overlay { padding: 12px; }
+  .modal { min-width: 0; max-height: calc(100dvh - 24px); overflow-y: auto; }
+  .confirm-box { min-width: 0; }
+  .modal-actions { flex-wrap: wrap; }
+  .settings-panel { width: 100%; max-width: 360px; }
+  /* Cover controls: position panel wraps, change/remove buttons move to the top */
+  .cover-pos-panel { right: 10px; flex-wrap: wrap; row-gap: 4px; }
+  .cover-pos-btns { flex-wrap: wrap; }
+  .page-cover-actions { top: 10px; bottom: auto; }
   .sidebar { position: fixed; left: 0; top: var(--total-h); bottom: 0; transform: translateX(-272px); transition: transform 0.25s; z-index: 150; width: 272px; background: var(--bg2); }
   .sidebar.mobile-open { transform: translateX(0); }
   .mobile-sidebar-overlay { position: fixed; inset: 0; top: var(--total-h); background: rgba(0,0,0,0.4); z-index: 140; display: none; }
@@ -1915,6 +1940,16 @@ body { top: 0 !important; }
   .logo-area { display: none !important; }
 }
 .mobile-menu-btn { display: none; margin-left: 8px; }
+/* Touch screens have no hover: show the controls that otherwise appear on
+   hover (nav and tab actions only on the active item to keep it tidy). */
+@media (hover: none) {
+  .nav-item.active .nav-actions,
+  .section-label .section-add,
+  .ce-code .code-copy-btn,
+  .local-image-tool .lit-del-btn,
+  [data-edit="1"] .page-cover-actions { opacity: 1; }
+  .tab-item.active .tab-edit-btn, .tab-item.active .tab-move-btn { display: flex; }
+}
 
 /* ── Drag & Drop ── */
 .nav-item.drag-over-above { border-top: 2px solid var(--accent) !important; }

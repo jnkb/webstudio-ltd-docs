@@ -1177,6 +1177,7 @@ function mcpSettingsPublic(array $s): array {
     $out['hideSingleSpaceTabs'] = ($s['hideSingleSpaceTabs'] ?? false) === true;
     $out['shareSectionEnabled'] = ($s['shareSectionEnabled'] ?? true) !== false;
     $out['translateEnabled']    = ($s['translateEnabled'] ?? true) !== false;
+    $out['readingTimeEnabled']  = ($s['readingTimeEnabled'] ?? true) !== false;
     $out['hasLogo']    = is_string($s['logoDataUrl'] ?? null) && $s['logoDataUrl'] !== '';
     $out['hasFavicon'] = is_string($s['faviconDataUrl'] ?? null) && $s['faviconDataUrl'] !== '';
     return $out;
@@ -1811,7 +1812,7 @@ mcpTool('list_images', [
 
 mcpTool('get_settings', [
     'title'       => 'Get site settings',
-    'description' => 'Site settings: siteName, tabTitle, accentColor, theme, lang, footerText, footerTailHtml, hideSingleSpaceTabs, shareSectionEnabled, translateEnabled, plus hasLogo / hasFavicon (the images themselves are not returned). Missing values are null.',
+    'description' => 'Site settings: siteName, tabTitle, accentColor, theme, lang, footerText, footerTailHtml, hideSingleSpaceTabs, shareSectionEnabled, translateEnabled, readingTimeEnabled, plus hasLogo / hasFavicon (the images themselves are not returned). Missing values are null.',
     'inputSchema' => ['type' => 'object', 'properties' => [], 'additionalProperties' => false],
     'annotations' => $MCP_RO,
 ], function (array $args): array {
@@ -1940,7 +1941,7 @@ Page cover (create_page / update_page "cover"; null removes it):
   trashes all pages of the space; the last space cannot be deleted).
 - update_settings: siteName, tabTitle, accentColor "#rrggbb", theme "dark"/"light",
   lang "de"/"en"/"sk", footerText / footerTailHtml (footer HTML), hideSingleSpaceTabs,
-  shareSectionEnabled, translateEnabled. Logo and favicon only in the editor.
+  shareSectionEnabled, translateEnabled, readingTimeEnabled. Logo and favicon only in the editor.
 - position (create_page, move_page) is the 0-based index among the siblings; for
   root pages among all root pages of the space, across sections.
 - Structure changes (move, reorder, sections) do not change updatedAt; content and
@@ -2733,7 +2734,7 @@ mcpTool('update_settings', [
     'title'       => 'Update site settings',
     'description' => 'Change site settings; only the keys you pass change, the rest stays. Values: siteName, tabTitle (plain text); accentColor "#rrggbb"; theme "dark"|"light" (default theme for visitors); '
                    . 'lang "de"|"en"|"sk" (interface language, also the original language for the translate widget); footerText, footerTailHtml (HTML like the editor footer: a, b, strong, i, em, u, span, small, code, br; title on all, href/target/rel on a; other tags are shown as text); '
-                   . 'hideSingleSpaceTabs, shareSectionEnabled, translateEnabled (booleans). Logo and favicon can only be changed in the editor. Returns the new settings like get_settings.',
+                   . 'hideSingleSpaceTabs, shareSectionEnabled, translateEnabled, readingTimeEnabled (booleans). Logo and favicon can only be changed in the editor. Returns the new settings like get_settings.',
     'inputSchema' => ['type' => 'object', 'properties' => [
         'siteName'            => ['type' => 'string', 'description' => 'Site name next to the logo (max. 100)'],
         'tabTitle'            => ['type' => 'string', 'description' => 'Browser tab title on the start page (max. 100)'],
@@ -2745,11 +2746,12 @@ mcpTool('update_settings', [
         'hideSingleSpaceTabs' => ['type' => 'boolean', 'description' => 'Hide the tab bar while there is only one space'],
         'shareSectionEnabled' => ['type' => 'boolean', 'description' => 'Show the share section in the page sidebar'],
         'translateEnabled'    => ['type' => 'boolean', 'description' => 'Show the translate widget'],
+        'readingTimeEnabled'  => ['type' => 'boolean', 'description' => 'Show reading time and word count next to the page title'],
     ], 'additionalProperties' => false],
     'annotations' => ['readOnlyHint' => false, 'destructiveHint' => false, 'idempotentHint' => true, 'openWorldHint' => false],
 ], function (array $args) use ($MCP_EDITOR_RELOAD_NOTE): array {
     $known = ['siteName', 'tabTitle', 'accentColor', 'theme', 'lang', 'footerText', 'footerTailHtml',
-              'hideSingleSpaceTabs', 'shareSectionEnabled', 'translateEnabled'];
+              'hideSingleSpaceTabs', 'shareSectionEnabled', 'translateEnabled', 'readingTimeEnabled'];
     $unknown = array_values(array_diff(array_map('strval', array_keys($args)), $known));
     if ($unknown) {
         $msg = 'Unknown setting(s): ' . implode(', ', array_map(function ($k) { return mcpSanitizeText($k, 40); }, $unknown)) . '. Allowed: ' . implode(', ', $known) . '.';
@@ -2775,7 +2777,7 @@ mcpTool('update_settings', [
         if (mcpStrlen($v) > 2000) throw new McpToolError("$k is too long (max. 2000 characters)");
         $new[$k] = mcpSanitizeFooterHtml(trim($v));
     }
-    foreach (['hideSingleSpaceTabs', 'shareSectionEnabled', 'translateEnabled'] as $k) {
+    foreach (['hideSingleSpaceTabs', 'shareSectionEnabled', 'translateEnabled', 'readingTimeEnabled'] as $k) {
         if (($v = mcpArg($args, $k, 'bool', null)) !== null) $new[$k] = $v;
     }
     if (!$new) throw new McpToolError('Nothing to change: pass at least one of ' . implode(', ', $known));

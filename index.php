@@ -396,7 +396,6 @@ $_ogData = (function() {
     .ce-code .viewer-code code{background:transparent !important;font-family:var(--mono);font-size:13px;line-height:1.6;text-shadow:none !important;white-space:pre;}
     [data-theme="dark"] .ce-code .viewer-code code:not([class*="language-"]){color:#7dd3fc;}
     [data-theme="light"] .ce-code .viewer-code code:not([class*="language-"]){color:#0f4c81;}
-    .tc-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
     .tc-table{border-collapse:collapse;width:100%;}
     .tc-cell{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top;}
     .tc-table th.tc-cell{background:var(--bg3);font-weight:600;}
@@ -428,6 +427,7 @@ let S = {
     lang: DEFAULT_INTERFACE_LANG,
     hideSingleSpaceTabs: false,
     shareSectionEnabled: true,
+    readingTimeEnabled: true,
     translateEnabled: true,
   }
 };
@@ -657,6 +657,7 @@ function applySettings() {
 
   applySpaceTabsVisibility();
   applyShareSectionAvailability();
+  updateReadingTime();
   applyTranslateAvailability();
   applyTranslations();
 }
@@ -1032,9 +1033,11 @@ function renderPage() {
       ${page.cover.type === 'image' ? `<img src="${esc(page.cover.value)}" alt="" style="object-fit:${esc(page.cover.fit || 'cover')};object-position:${esc(page.cover.position || '50% 50%')}">` : ''}
     </div>` : ''}
     <div class="breadcrumb">${breadParts.join('')}</div>
-    <div class="page-hero page-hero-viewer">
+    <div class="page-hero page-hero-plain">
       <h1 class="page-title-input" id="pg-title">${esc(page.title)}</h1>
-      <div class="reading-time" id="reading-time-el"><i class="fa-regular fa-clock"></i> <span>...</span></div>
+      <div class="page-hero-meta">
+        <div class="reading-time" id="reading-time-el"><i class="fa-regular fa-clock"></i> <span>...</span></div>
+      </div>
     </div>
     <div class="page-desc" id="pg-desc" style="padding-bottom:16px">${page.subtitle ? esc(page.subtitle) : ''}</div>
     <div class="page-divider"></div>

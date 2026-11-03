@@ -661,6 +661,13 @@ $_ogData = (function() {
       </div>
       <div class="settings-row">
         <div>
+          <div class="settings-row-label" data-i18n="settingsReadingTime">Reading time</div>
+          <div class="settings-row-sub" data-i18n="settingsReadingTimeSub">Show reading time and word count next to the page title</div>
+        </div>
+        <button class="toggle on" id="reading-time-toggle" onclick="toggleReadingTime()"></button>
+      </div>
+      <div class="settings-row">
+        <div>
           <div class="settings-row-label" data-i18n="settingsShareSection">Share section</div>
           <div class="settings-row-sub" data-i18n="settingsShareSectionSub">Show the share block in the page sidebar</div>
         </div>
@@ -1033,6 +1040,7 @@ let S = {
     lang: DEFAULT_INTERFACE_LANG,
     hideSingleSpaceTabs: false,
     shareSectionEnabled: true,
+    readingTimeEnabled: true,
     translateEnabled: true,
   }
 };
@@ -1391,6 +1399,10 @@ function applySettings() {
   const langSel = document.getElementById('lang-select');
   if (langSel && s.lang) langSel.value = s.lang;
 
+  // reading time toggle sync
+  const readingTimeToggle = document.getElementById('reading-time-toggle');
+  if (readingTimeToggle) readingTimeToggle.className = 'toggle ' + (isReadingTimeEnabled() ? 'on' : '');
+
   // share section toggle sync
   const shareSectionToggle = document.getElementById('share-section-toggle');
   if (shareSectionToggle) shareSectionToggle.className = 'toggle ' + (isShareSectionEnabled() ? 'on' : '');
@@ -1405,6 +1417,7 @@ function applySettings() {
 
   applySpaceTabsVisibility();
   applyShareSectionAvailability();
+  updateReadingTime();
   applyTranslateAvailability();
 
   // apply translations to all data-i18n elements
@@ -1439,6 +1452,12 @@ function toggleTranslateAvailability() {
 
 function toggleHideSingleSpaceTabs() {
   S.settings.hideSingleSpaceTabs = !isHideSingleSpaceTabsEnabled();
+  saveSettingsDebounced();
+  applySettings();
+}
+
+function toggleReadingTime() {
+  S.settings.readingTimeEnabled = !isReadingTimeEnabled();
   saveSettingsDebounced();
   applySettings();
 }
@@ -1997,40 +2016,21 @@ function renderPage() {
         <button class="page-cover-btn" onclick="changeCover()"><i class="fa-solid fa-image"></i> ${t('coverChange')}</button>
         <button class="page-cover-btn" onclick="removeCover()"><i class="fa-solid fa-trash"></i> ${t('coverRemove')}</button>
       </div>
-      ${page.cover?.type === 'image' ? `<div class="cover-pos-panel">
-        <span class="cover-pos-label">${t('coverCenter')}</span>
-        <div class="cover-pos-btns">
-          <button class="cover-pos-btn ${(page.cover?.position||'center')==='top'?'active':''}" onclick="setCoverPosition('top')">${t('coverTop')}</button>
-          <button class="cover-pos-btn ${(page.cover?.position||'center')==='center'?'active':''}" onclick="setCoverPosition('center')">${t('coverCenter')}</button>
-          <button class="cover-pos-btn ${(page.cover?.position||'center')==='bottom'?'active':''}" onclick="setCoverPosition('bottom')">${t('coverBottom')}</button>
-        </div>
-        <span class="cover-pos-label" style="margin-left:4px">${t('coverFitCover')}</span>
-        <div class="cover-pos-btns">
-          <button class="cover-pos-btn ${(page.cover?.fit||'cover')==='cover'?'active':''}" data-fit="cover" onclick="setCoverFit('cover')">${t('coverFitCover')}</button>
-          <button class="cover-pos-btn ${(page.cover?.fit||'cover')==='contain'?'active':''}" data-fit="contain" onclick="setCoverFit('contain')">${t('coverFitContain')}</button>
-        </div>
-      </div>` : ''}` : ''}
+      ${page.cover?.type === 'image' ? coverPosPanelHtml(page) : ''}` : ''}
     </div>` : ''}
     <div class="page-draft-banner" id="page-draft-banner" style="display:none"></div>
     <div class="breadcrumb">${breadParts.join('')}</div>
-    <div class="page-hero">
-      <div class="page-icon-wrap">
-        <div class="page-icon" id="pg-icon" onclick="openIconPicker()" title="">
-          <i class="fa-solid ${page.icon || 'fa-file'}"></i>
-        </div>
-      </div>
-      <div style="flex:1;min-width:0;display:flex;align-items:center;gap:12px">
-        <input type="text" class="page-title-input" id="pg-title"
-          value="${esc(page.title)}" placeholder="${t('pageUntitled')}"
-          ${S.editMode ? '' : 'readonly'}
-          oninput="markDirty()">
-        <div style="display:flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0">
-          ${S.editMode && !page.cover ? `<button onclick="addCover()" style="font-size:12px;padding:4px 10px;border-radius:6px;border:1px dashed var(--border);background:transparent;color:var(--text3);cursor:pointer;font-family:var(--font);display:flex;align-items:center;gap:5px;transition:all .15s;" onmouseover="this.style.color='var(--text2)';this.style.borderColor='var(--text3)'" onmouseout="this.style.color='var(--text3)';this.style.borderColor='var(--border)'"><i class="fa-solid fa-image"></i> ${t('coverLabel')}</button>` : ''}
-          <div class="reading-time" id="reading-time-el"><i class="fa-regular fa-clock"></i> <span>...</span></div>
-        </div>
+    <div class="page-hero page-hero-plain">
+      <input type="text" class="page-title-input" id="pg-title"
+        value="${esc(page.title)}" placeholder="${t('pageUntitled')}"
+        ${S.editMode ? '' : 'readonly'}
+        oninput="markDirty()">
+      <div class="page-hero-meta">
+        ${S.editMode && !page.cover ? `<button onclick="addCover()" style="font-size:12px;padding:4px 10px;border-radius:6px;border:1px dashed var(--border);background:transparent;color:var(--text3);cursor:pointer;font-family:var(--font);display:flex;align-items:center;gap:5px;transition:all .15s;" onmouseover="this.style.color='var(--text2)';this.style.borderColor='var(--text3)'" onmouseout="this.style.color='var(--text3)';this.style.borderColor='var(--border)'"><i class="fa-solid fa-image"></i> ${t('coverLabel')}</button>` : ''}
+        <div class="reading-time" id="reading-time-el"><i class="fa-regular fa-clock"></i> <span>...</span></div>
       </div>
     </div>
-    <div class="page-desc" id="pg-desc" contenteditable="${S.editMode}" style="padding-bottom:16px;padding-left:52px">${page.subtitle ? esc(page.subtitle) : ''}</div>
+    <div class="page-desc" id="pg-desc" contenteditable="${S.editMode}" style="padding-bottom:16px">${page.subtitle ? esc(page.subtitle) : ''}</div>
     <div class="page-divider"></div>
     <div id="editor"></div>
     <div id="page-last-updated"></div>
@@ -2038,6 +2038,7 @@ function renderPage() {
   `;
 
   bindEditorPageLinks(view);
+  if (S.editMode && page.cover?.type === 'image') initCoverDrag(document.getElementById('page-cover-el'), page);
   renderDraftBanner(page);
   updatePageNavBottom(page);
   if (S.editMode || blocks.length) {
@@ -2133,62 +2134,96 @@ async function setCoverFit(fit) {
   });
 }
 
+// Cover position "X% Y%" (legacy values: top / center / bottom) → [x, y]
+function coverPosXY(position) {
+  const p = String(position || '').trim();
+  if (p === 'top') return [50, 0];
+  if (p === 'bottom') return [50, 100];
+  const m = p.match(/^(-?[\d.]+)%\s+(-?[\d.]+)%$/);
+  return m ? [parseFloat(m[1]), parseFloat(m[2])] : [50, 50];
+}
+
+const COVER_POSITIONS = { top: '50% 0%', center: '50% 50%', bottom: '50% 100%' };
+
+// Which preset button matches the position ('' after a free drag)
+function coverPosKey(position) {
+  const [x, y] = coverPosXY(position);
+  if (Math.round(x) !== 50) return '';
+  return { 0: 'top', 50: 'center', 100: 'bottom' }[Math.round(y)] || '';
+}
+
+// Position + size controls shown on an image cover in edit mode
+function coverPosPanelHtml(page) {
+  const pos = coverPosKey(page.cover?.position);
+  const fit = page.cover?.fit || 'cover';
+  const posBtn = key => `<button type="button" class="cover-pos-btn ${pos === key ? 'active' : ''}" data-pos="${key}" onclick="setCoverPosition('${key}')">${t({ top: 'coverTop', center: 'coverCenter', bottom: 'coverBottom' }[key])}</button>`;
+  const fitBtn = key => `<button type="button" class="cover-pos-btn ${fit === key ? 'active' : ''}" data-fit="${key}" onclick="setCoverFit('${key}')">${t(key === 'cover' ? 'coverFitCover' : 'coverFitContain')}</button>`;
+  return `<div class="cover-pos-panel">
+    <i class="fa-solid fa-up-down-left-right cover-pos-drag-icon" title="${esc(t('coverDragHint'))}"></i>
+    <span class="cover-pos-label">${t('coverPositionLabel')}</span>
+    <div class="cover-pos-btns">${posBtn('top')}${posBtn('center')}${posBtn('bottom')}</div>
+    <span class="cover-pos-label" style="margin-left:4px">${t('coverSizeLabel')}</span>
+    <div class="cover-pos-btns">${fitBtn('cover')}${fitBtn('contain')}</div>
+  </div>`;
+}
+
+function syncCoverPosButtons(position) {
+  const key = coverPosKey(position);
+  document.querySelectorAll('.cover-pos-btn[data-pos]').forEach(b => {
+    b.classList.toggle('active', b.dataset.pos === key);
+  });
+}
+
+async function setCoverPosition(key) {
+  const page = S.pages.find(p => p.id === S.currentPageId);
+  if (!page?.cover || !COVER_POSITIONS[key]) return;
+  page.cover.position = COVER_POSITIONS[key];
+  const img = document.querySelector('#page-cover-el img');
+  if (img) img.style.objectPosition = page.cover.position;
+  syncCoverPosButtons(page.cover.position);
+  await savePageToServer(page);
+}
+
+// Drag the cover image (mouse or touch) to fine-tune object-position
 function initCoverDrag(coverEl, page) {
-  const img = coverEl.querySelector('img');
-  if (!img) return;
-
-  let dragging = false;
-  let startY, startX;
-  // Parse current position (e.g. "50% 30%")
-  let posX = 50, posY = 50;
-  const cur = (page.cover.position || '50% 50%');
-  const parts = cur.split(' ');
-  if (parts.length === 2) {
-    posX = parseFloat(parts[0]) || 50;
-    posY = parseFloat(parts[1]) || 50;
-  } else if (cur === 'top') { posY = 0; posX = 50; }
-  else if (cur === 'bottom') { posY = 100; posX = 50; }
-  else if (cur === 'center') { posX = 50; posY = 50; }
-
-  img.style.objectPosition = `${posX}% ${posY}%`;
+  const img = coverEl?.querySelector('img');
+  if (!img || img.dataset.dragInit) return;
+  img.dataset.dragInit = '1';
   img.style.cursor = 'grab';
+  img.style.touchAction = 'none';
+  img.title = t('coverDragHint');
 
-  img.addEventListener('mousedown', (e) => {
-    if (!S.editMode) return;
-    dragging = true;
-    startX = e.clientX;
-    startY = e.clientY;
+  let start = null;
+  let cur = null;
+  img.addEventListener('pointerdown', e => {
+    if (!S.editMode || !page.cover) return;
+    const [x, y] = coverPosXY(page.cover.position);
+    start = { cx: e.clientX, cy: e.clientY, x, y };
+    cur = [x, y];
+    img.setPointerCapture(e.pointerId);
     img.style.cursor = 'grabbing';
     e.preventDefault();
   });
-
-  document.addEventListener('mousemove', (e) => {
-    if (!dragging) return;
+  img.addEventListener('pointermove', e => {
+    if (!start) return;
     const rect = coverEl.getBoundingClientRect();
-    const imgNaturalRatio = img.naturalWidth / img.naturalHeight;
-    const coverRatio = rect.width / rect.height;
-
-    // Sensitivity based on overflow
-    const dx = (e.clientX - startX) / rect.width * 100;
-    const dy = (e.clientY - startY) / rect.height * 100;
-
-    posX = Math.min(100, Math.max(0, posX - dx * 0.5));
-    posY = Math.min(100, Math.max(0, posY - dy * 0.5));
-
-    startX = e.clientX;
-    startY = e.clientY;
-
-    img.style.objectPosition = `${posX}% ${posY}%`;
+    const clamp = v => Math.min(100, Math.max(0, v));
+    cur = [clamp(start.x - (e.clientX - start.cx) / rect.width * 50),
+           clamp(start.y - (e.clientY - start.cy) / rect.height * 50)];
+    img.style.objectPosition = `${cur[0]}% ${cur[1]}%`;
   });
-
-  document.addEventListener('mouseup', () => {
-    if (!dragging) return;
-    dragging = false;
+  const end = () => {
+    if (!start) return;
+    const moved = cur[0] !== start.x || cur[1] !== start.y;
+    start = null;
     img.style.cursor = 'grab';
-    // Ulož
-    page.cover.position = `${Math.round(posX)}% ${Math.round(posY)}%`;
+    if (!moved) return;
+    page.cover.position = `${Math.round(cur[0])}% ${Math.round(cur[1])}%`;
+    syncCoverPosButtons(page.cover.position);
     savePageToServer(page);
-  });
+  };
+  img.addEventListener('pointerup', end);
+  img.addEventListener('pointercancel', end);
 }
 
 // ── Templates ──
@@ -2223,87 +2258,6 @@ function buildTemplateGrid() {
 }
 
 // updatePageNavBottom is in assets/shared.js
-
-// ════════════════════════════════════════
-//  ICON PICKER (for page icon)
-// ════════════════════════════════════════
-let iconPickerOpen = false;
-let pickerDiv = null;
-
-function openIconPicker() {
-  if (!S.editMode) return;
-  if (iconPickerOpen) { closeIconPickerEl(); return; }
-  iconPickerOpen = true;
-
-  pickerDiv = document.createElement('div');
-  pickerDiv.style.cssText = `
-    position:fixed;z-index:300;background:var(--bg2);
-    border:1px solid var(--border2);border-radius:10px;
-    padding:12px;box-shadow:0 10px 32px var(--shadow);
-    width:280px;
-  `;
-
-  const inp = document.createElement('input');
-  inp.className = 'field-input icon-search-modal';
-  inp.placeholder = t('iconPickerSearch');
-  inp.style.cssText = 'width:100%;margin-bottom:10px';
-
-  const grid = document.createElement('div');
-  grid.className = 'icon-grid';
-
-  function fillGrid(filter) {
-    grid.innerHTML = '';
-    ICON_LIST.filter(ic => !filter || ic.includes(filter)).forEach(ic => {
-      const el = document.createElement('div');
-      el.className = 'ig-item';
-      const page = S.pages.find(p => p.id === S.currentPageId);
-      if (page && page.icon === ic) el.classList.add('selected');
-      el.innerHTML = `<i class="fa-solid ${ic}" title="${ic}"></i>`;
-      el.onclick = () => setPageIcon(ic);
-      grid.appendChild(el);
-    });
-  }
-
-  inp.oninput = () => fillGrid(inp.value.replace('fa-',''));
-  fillGrid('');
-
-  pickerDiv.appendChild(inp);
-  pickerDiv.appendChild(grid);
-  document.body.appendChild(pickerDiv);
-
-  const iconEl = document.getElementById('pg-icon');
-  if (iconEl) {
-    const rect = iconEl.getBoundingClientRect();
-    pickerDiv.style.top = (rect.bottom + 6) + 'px';
-    pickerDiv.style.left = rect.left + 'px';
-  }
-
-  setTimeout(() => {
-    document.addEventListener('click', outsidePickerClick);
-  }, 10);
-}
-
-function outsidePickerClick(e) {
-  if (pickerDiv && !pickerDiv.contains(e.target)) {
-    closeIconPickerEl();
-  }
-}
-
-function closeIconPickerEl() {
-  if (pickerDiv) { pickerDiv.remove(); pickerDiv = null; }
-  iconPickerOpen = false;
-  document.removeEventListener('click', outsidePickerClick);
-}
-
-function setPageIcon(icon) {
-  const page = S.pages.find(p => p.id === S.currentPageId);
-  if (page) { page.icon = icon; savePageToServer(page); }
-  const iconEl = document.getElementById('pg-icon');
-  if (iconEl) iconEl.innerHTML = `<i class="fa-solid ${icon}"></i>`;
-  renderNav();
-  closeIconPickerEl();
-  markDirty();
-}
 
 // ════════════════════════════════════════
 //  CUSTOM IMAGE TOOL — uploads to images/ via api.php
@@ -4141,8 +4095,8 @@ async function toggleEdit() {
 
 function syncEditUI() {
   document.getElementById('edit-btn').innerHTML = S.editMode
-    ? `<i class="fa-solid fa-eye"></i> ${t('btnPreview')}`
-    : `<i class="fa-solid fa-pen"></i> ${t('btnEdit')}`;
+    ? `<i class="fa-solid fa-eye"></i> <span>${t('btnPreview')}</span>`
+    : `<i class="fa-solid fa-pen"></i> <span>${t('btnEdit')}</span>`;
   document.getElementById('save-btn').classList.toggle('show', S.editMode);
   document.getElementById('undo-btn').style.display = S.editMode ? '' : 'none';
   document.getElementById('redo-btn').style.display = S.editMode ? '' : 'none';
@@ -4190,17 +4144,7 @@ function syncEditUI() {
 
           // Position panel len pre obrázky
           if (page.cover.type === 'image') {
-            const fit = page.cover.fit || 'cover';
-            const panel = document.createElement('div');
-            panel.className = 'cover-pos-panel';
-            panel.innerHTML = `
-              <i class="fa-solid fa-up-down-left-right" style="color:rgba(255,255,255,.7);font-size:11px"></i>
-              <span class="cover-pos-label">${t('dragReorder')}</span>
-              <div class="cover-pos-btns">
-                <button class="cover-pos-btn ${fit==='cover'?'active':''}" data-fit="cover" onclick="setCoverFit('cover')">${t('coverFitCover')}</button>
-                <button class="cover-pos-btn ${fit==='contain'?'active':''}" data-fit="contain" onclick="setCoverFit('contain')">${t('coverFitContain')}</button>
-              </div>`;
-            coverEl.appendChild(panel);
+            coverEl.insertAdjacentHTML('beforeend', coverPosPanelHtml(page));
             initCoverDrag(coverEl, page);
           }
         }
@@ -4878,7 +4822,6 @@ document.addEventListener('keydown', e => {
     closeModal('add-modal');
     closeSettings();
     closeSearchDD();
-    closeIconPickerEl();
     closeChangePassword();
   }
 });

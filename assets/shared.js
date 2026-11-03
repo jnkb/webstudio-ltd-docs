@@ -288,6 +288,7 @@ function detectCodeLanguage(code) {
 function isTranslateEnabled() { return S.settings.translateEnabled !== false; }
 function isHideSingleSpaceTabsEnabled() { return S.settings.hideSingleSpaceTabs === true; }
 function isShareSectionEnabled() { return S.settings.shareSectionEnabled !== false; }
+function isReadingTimeEnabled() { return S.settings.readingTimeEnabled !== false; }
 function shouldHideSpaceTabs() { return isHideSingleSpaceTabsEnabled() && S.spaces.length <= 1; }
 
 function applySpaceTabsVisibility() {
@@ -551,6 +552,7 @@ function initScrollSpy() {
 function updateReadingTime() {
     const el = document.getElementById('reading-time-el');
     if (!el) return;
+    el.style.display = isReadingTimeEnabled() ? '' : 'none';
     const text = document.getElementById('editor')?.innerText || '';
     const words = text.trim().split(/\s+/).filter(Boolean).length;
     const mins = Math.max(1, Math.round(words / 200));

@@ -43,7 +43,8 @@ function publicSettings($s) {
     // Keep in sync with what index.php reads from S.settings.
     $allow = ['siteName','tabTitle','accentColor','theme','lang',
               'logoDataUrl','faviconDataUrl','footerText','footerTailHtml',
-              'hideSingleSpaceTabs','shareSectionEnabled','translateEnabled'];
+              'hideSingleSpaceTabs','shareSectionEnabled','translateEnabled',
+              'readingTimeEnabled'];
     $out = [];
     foreach ($allow as $k) {
         if (array_key_exists($k, $s)) $out[$k] = $s[$k];
