@@ -417,6 +417,7 @@ function renameStoredPage($oldId, $newId, array $meta = []): array {
     foreach (['title', 'subtitle', 'icon', 'section'] as $k) {
         if (array_key_exists($k, $meta)) $page[$k] = $meta[$k];
     }
+    if (array_key_exists('draft', $meta)) $page['draft'] = (bool)$meta['draft'];
     $page['id'] = $newId;
     if (!jsonWrite(pageFilePath($newId), $page)) err('Failed to write page', 500);
     if ($newId !== $oldId) {

@@ -529,6 +529,14 @@ $_ogData = (function() {
       <label data-i18n="modalAddSectionLabel">Section (optional)</label>
       <input class="field-input" type="text" id="page-edit-section" data-i18n-ph="modalAddSection" placeholder="Section name">
     </div>
+    <div class="modal-field page-edit-draft-row">
+      <div>
+        <div class="settings-row-label" data-i18n="modalEditDraft">Draft</div>
+        <div class="settings-row-sub" data-i18n="modalEditDraftSub">Hidden from the public viewer, including all subpages</div>
+        <div class="settings-row-sub page-edit-draft-inherited" id="page-edit-draft-inherited" style="display:none"></div>
+      </div>
+      <button type="button" class="toggle" id="page-edit-draft-toggle" role="switch" aria-checked="false" onclick="togglePageEditDraft()"></button>
+    </div>
     <div class="modal-actions" style="justify-content:space-between;">
       <button class="btn" style="color:#ef4444;border:1px solid rgba(239,68,68,.3);background:transparent;" onclick="deletePageFromEdit()"><i class="fa-solid fa-trash"></i> <span data-i18n="btnRemovePage">Remove</span></button>
       <div style="display:flex;gap:8px;margin-left:auto;">
@@ -1820,7 +1828,7 @@ function renderNavItem(page, container, depth, allPages) {
   const wrap = document.createElement('div');
 
   const item = document.createElement('div');
-  item.className = 'nav-item' + (isActive ? ' active' : '');
+  item.className = 'nav-item' + (isActive ? ' active' : '') + (isAdmin && page.draft ? ' nav-item-draft' : '');
   item.style.paddingLeft = `${12 + depth * 16}px`;
   item.dataset.pageId = page.id;
 
@@ -1840,6 +1848,7 @@ function renderNavItem(page, container, depth, allPages) {
     <a class="nav-link" href="${esc(buildPageHref(page.id))}" data-page-id="${esc(page.id)}">
       <span class="nav-ic"><i class="fa-solid ${page.icon || 'fa-file'}"></i></span>
       <span class="nav-label">${esc(page.title)}</span>
+      ${isAdmin && page.draft ? `<span class="nav-draft-badge" title="${esc(t('pageDraftBadge') + ': ' + t('modalEditDraftSub'))}" aria-label="${esc(t('pageDraftBadge'))}"><i class="fa-solid fa-eye-slash"></i></span>` : ''}
     </a>
     ${actionsHtml}
   `;
@@ -2000,6 +2009,7 @@ function renderPage() {
         </div>
       </div>` : ''}` : ''}
     </div>` : ''}
+    <div class="page-draft-banner" id="page-draft-banner" style="display:none"></div>
     <div class="breadcrumb">${breadParts.join('')}</div>
     <div class="page-hero">
       <div class="page-icon-wrap">
@@ -2026,6 +2036,7 @@ function renderPage() {
   `;
 
   bindEditorPageLinks(view);
+  renderDraftBanner(page);
   updatePageNavBottom(page);
   if (S.editMode || blocks.length) {
     initEditor(page);
@@ -4394,6 +4405,11 @@ function openPageEdit(pageId) {
   document.getElementById('page-edit-section').value = page.section || '';
   document.getElementById('page-edit-id').value = page.id || '';
   updatePageEditIdHint();
+  setPageEditDraftToggle(!!page.draft);
+  const inheritedEl = document.getElementById('page-edit-draft-inherited');
+  const draftAncestor = findDraftAncestor(page);
+  inheritedEl.textContent = draftAncestor ? t('pageDraftInheritedHint').replace('{title}', draftAncestor.title || draftAncestor.id) : '';
+  inheritedEl.style.display = draftAncestor ? '' : 'none';
 
   const preview = document.getElementById('page-edit-icon-preview');
   preview.innerHTML = `<i class="fa-solid ${page.icon || 'fa-file'}"></i>`;
@@ -4415,6 +4431,60 @@ function openPageEdit(pageId) {
 
   openModal('page-edit-modal');
   setTimeout(() => document.getElementById('page-edit-title').focus(), 100);
+}
+
+function setPageEditDraftToggle(on) {
+  const btn = document.getElementById('page-edit-draft-toggle');
+  if (!btn) return;
+  btn.classList.toggle('on', on);
+  btn.setAttribute('aria-checked', on ? 'true' : 'false');
+}
+
+function togglePageEditDraft() {
+  const btn = document.getElementById('page-edit-draft-toggle');
+  setPageEditDraftToggle(!btn.classList.contains('on'));
+}
+
+// Nearest ancestor that is a draft (it hides this page from the public too).
+function findDraftAncestor(page) {
+  const seen = new Set([page.id]);
+  let cur = page;
+  while (cur && cur.parentId && !seen.has(cur.parentId)) {
+    seen.add(cur.parentId);
+    cur = S.pages.find(p => p.id === cur.parentId);
+    if (cur && cur.draft) return cur;
+  }
+  return null;
+}
+
+// Switch a page between draft and published straight from the page banner.
+async function setPageDraft(pageId, draft) {
+  const page = S.pages.find(p => p.id === pageId);
+  if (!page) return;
+  const ok = await renamePageOnServer(page.id, page.id, { draft });
+  if (!ok) { showToast(t('toastPageSaveFailed')); return; }
+  if (draft) page.draft = true; else delete page.draft;
+  renderNav();
+  if (S.currentPageId === pageId) renderDraftBanner(page);
+  showToast(t(draft ? 'toastPageDrafted' : 'toastPagePublished'));
+}
+
+function renderDraftBanner(page) {
+  const el = document.getElementById('page-draft-banner');
+  if (!el) return;
+  const ancestor = page && !page.draft ? findDraftAncestor(page) : null;
+  if (!S.authed || !page || (!page.draft && !ancestor)) { el.innerHTML = ''; el.style.display = 'none'; return; }
+  el.style.display = '';
+  if (page.draft) {
+    el.innerHTML = `<i class="fa-solid fa-eye-slash"></i>
+      <span class="page-draft-banner-text">${esc(t('pageDraftBanner'))}</span>
+      <button class="btn btn-primary page-draft-banner-btn" onclick="setPageDraft('${esc(page.id)}', false)"><i class="fa-solid fa-globe"></i> ${esc(t('btnPublishPage'))}</button>`;
+  } else {
+    el.innerHTML = `<i class="fa-solid fa-eye-slash"></i>
+      <span class="page-draft-banner-text">${esc(t('pageDraftInheritedHint').replace('{title}', ancestor.title || ancestor.id))}</span>
+      <a class="btn btn-ghost page-draft-banner-btn" href="${esc(buildPageHref(ancestor.id))}" data-page-id="${esc(ancestor.id)}">${esc(t('btnOpenDraftParent'))}</a>`;
+    bindEditorPageLinks(el);
+  }
 }
 
 function previewPageEditIcon(val) {
@@ -4452,12 +4522,17 @@ async function confirmPageEdit() {
   page.subtitle = document.getElementById('page-edit-subtitle').value.trim();
   page.icon = document.getElementById('page-edit-icon').value.trim() || 'fa-file';
   page.section = document.getElementById('page-edit-section').value.trim();
+  const draft = document.getElementById('page-edit-draft-toggle').classList.contains('on');
+
+  // rename_page also handles an unchanged id: it writes the edited metadata
+  // onto the stored page file and keeps the stored content.
+  const ok = await renamePageOnServer(oldId, newId, {
+    title: page.title, subtitle: page.subtitle, icon: page.icon, section: page.section, draft,
+  });
+  if (!ok) { showToast(t(newId !== oldId ? 'toastIdTaken' : 'toastPageSaveFailed')); return; }
+  if (draft) page.draft = true; else delete page.draft;
 
   if (newId !== oldId) {
-    const ok = await renamePageOnServer(oldId, newId, {
-      title: page.title, subtitle: page.subtitle, icon: page.icon, section: page.section,
-    });
-    if (!ok) { showToast(t('toastIdTaken')); return; }
     page.id = newId;
     S.pages.forEach(p => { if (p.parentId === oldId) p.parentId = newId; });
     if (S.currentPageId === oldId) S.currentPageId = newId;

@@ -185,7 +185,7 @@ Agents write and receive content as **EditorJS blocks**, the format the editor s
 - **Inline HTML** in text fields is limited to `b`, `strong`, `i`, `em`, `u`, `s`, `mark`, `code`, `br`, and `a`. Anything else is escaped and shows up as visible text.
 - **Internal links:** `<a href="?page=<id>" data-page-id="<id>">`. `set_page_id` keeps them up to date when a page ID changes.
 - **Structure:** spaces contain pages, pages form a tree (`parent_id`), and root pages can be grouped into named **sections** in the sidebar. Subpages never have a section.
-- **Drafts:** `draft: true` hides a page **and all its subpages** from the public: sidebar, direct URL, API, link previews, and OG meta. Logged-in editors still see them. The editor has no draft switch yet, so drafts are set through MCP.
+- **Drafts:** `draft: true` hides a page **and all its subpages** from the public: sidebar, direct URL, API, link previews, and OG meta. Logged-in editors still see them, marked with a draft badge. In the editor, switch it with the **Draft** toggle in *Edit page* or the **Publish** button in the draft banner on the page.
 - **Page IDs** are lowercase `a-z`, `0-9`, `-`, `_` (max. 60 characters) and form the URL `index.php?page=<id>`.
 
 ## Editing safely

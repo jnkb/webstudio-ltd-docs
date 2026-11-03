@@ -2075,3 +2075,19 @@ body.reading-mode #reading-mode-btn { color: var(--accent) !important; }
   animation: slideInRight .2s ease;
 }
 @keyframes slideInRight { from { transform: translateX(20px); opacity:0; } to { transform: translateX(0); opacity:1; } }
+
+/* ── Drafts (editor only) ── */
+.page-edit-draft-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.page-edit-draft-inherited { color: #d97706; margin-top: 4px; }
+.nav-draft-badge { flex-shrink: 0; margin-left: 6px; font-size: 11px; color: #d97706; }
+.nav-item-draft .nav-label { opacity: 0.75; }
+.page-draft-banner {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 18px; padding: 10px 14px;
+  font-size: 13px; color: var(--text2);
+  background: rgba(217,119,6,0.08); border: 1px solid rgba(217,119,6,0.3);
+  border-radius: 8px;
+}
+.page-draft-banner > i { color: #d97706; flex-shrink: 0; }
+.page-draft-banner-text { flex: 1; min-width: 0; }
+.page-draft-banner-btn { flex-shrink: 0; font-size: 12px; padding: 5px 10px; text-decoration: none; }

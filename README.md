@@ -23,7 +23,7 @@ The main changes, most significant first:
 ### Security & data safety
 
 - **Safer page deletion** — removed pages and related rating files are archived into `data/trash/pages` instead of being deleted outright.
-- **Drafts hide their subpages** — a draft page and its whole subtree are hidden from the public viewer, API, and link previews; logged-in editors still see them.
+- **Drafts hide their subpages** — a draft page and its whole subtree are hidden from the public viewer, API, and link previews; logged-in editors still see them and can switch the draft state in the editor.
 - **Image integrity checks** — corrupt or truncated images are refused on every upload path.
 - **Built-in password change flow** — admins can change the password from settings without rerunning setup.
 
