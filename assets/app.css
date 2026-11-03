@@ -395,6 +395,10 @@ body {
 .breadcrumb i.fa-chevron-right { font-size: 8px; color: var(--text4); }
 
 .page-hero { display: flex; align-items: flex-start; gap: 14px; }
+/* Viewer: no page icon, title flush left, reading time on the right */
+.page-hero-viewer { align-items: center; gap: 12px; }
+.page-hero-viewer .page-title-input { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.page-hero-viewer .reading-time { margin-left: auto; }
 
 /* ── Page Cover ── */
 .page-cover {
@@ -1874,16 +1878,38 @@ body { top: 0 !important; }
    RESPONSIVE
 ════════════════════════════ */
 @media (max-width: 1100px) {
-  .toc-panel { display: none; }
+  /* No room for the right column: the TOC list goes away, feedback, share
+     and the .md download move below the page content instead. */
+  .main { flex-direction: column; align-items: center; }
+  .content-wrap { width: 100%; padding-bottom: 24px; }
+  .toc-panel {
+    position: static; height: auto; overflow: visible;
+    width: 100%; max-width: 860px;
+    padding: 0 60px 100px;
+  }
+  .toc-panel .toc-head, .toc-panel #toc-items { display: none; }
+  .toc-panel > * { max-width: 360px; }
 }
 @media (max-width: 768px) {
   :root { --sidebar-w: 0px; }
+  /* Header row: burger | search | actions (the first column was 0px wide,
+     so the search box covered the burger button) */
+  .topnav { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .search-wrap { padding: 0 8px; min-width: 0; }
+  .search-kbd { display: none; }
+  .nav-right { padding: 0 8px 0 0; gap: 2px; }
+  #reading-mode-btn { display: none; }
+  .content-wrap { padding: 28px 20px 24px; }
+  .toc-panel { padding: 0 20px 80px; }
+  .page-title-input { font-size: 26px; }
+  .page-hero-viewer { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .page-hero-viewer .reading-time { margin-left: 0; }
+  body.reading-mode .content-wrap { padding-left: 20px; padding-right: 20px; }
   .sidebar { position: fixed; left: 0; top: var(--total-h); bottom: 0; transform: translateX(-272px); transition: transform 0.25s; z-index: 150; width: 272px; background: var(--bg2); }
   .sidebar.mobile-open { transform: translateX(0); }
   .mobile-sidebar-overlay { position: fixed; inset: 0; top: var(--total-h); background: rgba(0,0,0,0.4); z-index: 140; display: none; }
   .mobile-sidebar-overlay.open { display: block; }
   .main { margin-left: 0; }
-  .content-wrap { padding: 32px 20px 80px; }
   .tabbar { padding-left: 0; }
   .mobile-menu-btn { display: flex !important; }
   .logo-area { display: none !important; }

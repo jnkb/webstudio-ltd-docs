@@ -249,7 +249,7 @@ $_ogData = (function() {
 
 <!-- TOP NAV — header row -->
 <nav class="topnav">
-  <button class="icon-btn mobile-menu-btn" id="mobile-menu-btn" onclick="toggleMobileSidebar()">
+  <button class="icon-btn mobile-menu-btn" id="mobile-menu-btn" type="button" onclick="toggleMobileSidebar()" aria-controls="sidebar" aria-expanded="false" data-i18n-attr="aria-label" data-i18n="btnNavigation" aria-label="Navigation">
     <i class="fa-solid fa-bars"></i>
   </button>
   <div class="logo-area" id="logo-area-btn">

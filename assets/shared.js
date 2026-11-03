@@ -708,11 +708,22 @@ function toggleMobileSidebar() {
     const isOpen = sidebar.classList.contains('mobile-open');
     sidebar.classList.toggle('mobile-open', !isOpen);
     overlay.classList.toggle('open', !isOpen);
+    syncMobileMenuBtn(!isOpen);
 }
 
 function closeMobileSidebar() {
     document.getElementById('sidebar')?.classList.remove('mobile-open');
     document.getElementById('mobile-sidebar-overlay')?.classList.remove('open');
+    syncMobileMenuBtn(false);
+}
+
+// Burger ↔ close icon and aria-expanded on the mobile menu button
+function syncMobileMenuBtn(open) {
+    const btn = document.getElementById('mobile-menu-btn');
+    if (!btn) return;
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    const icon = btn.querySelector('i');
+    if (icon) icon.className = 'fa-solid ' + (open ? 'fa-xmark' : 'fa-bars');
 }
 
 window.addEventListener('popstate', () => {

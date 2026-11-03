@@ -239,7 +239,7 @@ $_ogData = (function() {
 
 <!-- TOP NAV — header row -->
 <nav class="topnav">
-  <button class="icon-btn mobile-menu-btn" id="mobile-menu-btn" onclick="toggleMobileSidebar()">
+  <button class="icon-btn mobile-menu-btn" id="mobile-menu-btn" type="button" onclick="toggleMobileSidebar()" aria-controls="sidebar" aria-expanded="false" data-i18n-attr="aria-label" data-i18n="btnNavigation" aria-label="Navigation">
     <i class="fa-solid fa-bars"></i>
   </button>
   <div class="logo-area" id="logo-area-btn">
@@ -1030,18 +1030,11 @@ function renderPage() {
       ${page.cover.type === 'image' ? `<img src="${esc(page.cover.value)}" alt="" style="object-fit:${esc(page.cover.fit || 'cover')};object-position:${esc(page.cover.position || '50% 50%')}">` : ''}
     </div>` : ''}
     <div class="breadcrumb">${breadParts.join('')}</div>
-    <div class="page-hero">
-      <div class="page-icon-wrap">
-        <div class="page-icon"><i class="fa-solid ${page.icon || 'fa-file'}"></i></div>
-      </div>
-      <div style="flex:1;min-width:0;display:flex;align-items:center;gap:12px">
-        <h1 class="page-title-input" id="pg-title">${esc(page.title)}</h1>
-        <div style="display:flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0">
-          <div class="reading-time" id="reading-time-el"><i class="fa-regular fa-clock"></i> <span>...</span></div>
-        </div>
-      </div>
+    <div class="page-hero page-hero-viewer">
+      <h1 class="page-title-input" id="pg-title">${esc(page.title)}</h1>
+      <div class="reading-time" id="reading-time-el"><i class="fa-regular fa-clock"></i> <span>...</span></div>
     </div>
-    <div class="page-desc" id="pg-desc" style="padding-bottom:16px;padding-left:52px">${page.subtitle ? esc(page.subtitle) : ''}</div>
+    <div class="page-desc" id="pg-desc" style="padding-bottom:16px">${page.subtitle ? esc(page.subtitle) : ''}</div>
     <div class="page-divider"></div>
     <div id="editor">${renderBlocks(page.content)}</div>
     <div id="page-last-updated"></div>
