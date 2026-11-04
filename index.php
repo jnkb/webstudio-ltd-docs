@@ -1196,6 +1196,12 @@ async function react(r, icon = '') {
   const ratingValue = normalizeClientRatingValue(r);
   const feedbackIcon = icon || FEEDBACK_ICON_BY_VALUE[ratingValue] || '';
   if (!pageId || !ratingValue || feedbackSaving) return;
+  // Same rating as this tab's current vote: nothing to change.
+  if (getStoredFeedback(pageId) === ratingValue) {
+    showToast(t('toastFeedback') + feedbackIcon);
+    return;
+  }
+  const vote = getFeedbackVoteId(pageId);
 
   feedbackSaving = true;
   setFeedbackButtonsDisabled(true);
@@ -1204,7 +1210,7 @@ async function react(r, icon = '') {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: pageId, rating: ratingValue })
+      body: JSON.stringify({ id: pageId, rating: ratingValue, vote })
     });
     let data = null;
     try { data = await res.json(); } catch (e) {}

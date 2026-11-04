@@ -603,24 +603,55 @@ function normalizeClientRatingValue(value) {
     return FEEDBACK_VALUE_MAP[String(value ?? '').trim()] || '';
 }
 
+// One vote per page per browser tab: the tab's sessionStorage keeps, per page,
+// a random vote id plus the last rating. The server stores every change under
+// that id and counts only its latest rating, so changing the rating in the
+// same tab replaces the vote; a new tab or session casts a new one.
+// Shape: { [pageId]: { vote: '<random id>', rating: '1' | '0' | '-1' } }
+try { localStorage.removeItem(FEEDBACK_STORAGE_KEY); } catch (e) { } // pre-vote format
+
 function readFeedbackStore() {
-    try { return JSON.parse(localStorage.getItem(FEEDBACK_STORAGE_KEY) || '{}') || {}; }
-    catch (e) { return {}; }
+    try {
+        const store = JSON.parse(sessionStorage.getItem(FEEDBACK_STORAGE_KEY) || '{}');
+        return store && typeof store === 'object' && !Array.isArray(store) ? store : {};
+    } catch (e) { return {}; }
 }
 
 function writeFeedbackStore(store) {
-    try { localStorage.setItem(FEEDBACK_STORAGE_KEY, JSON.stringify(store)); } catch (e) { }
+    try { sessionStorage.setItem(FEEDBACK_STORAGE_KEY, JSON.stringify(store)); } catch (e) { }
 }
 
 function getStoredFeedback(pageId) {
     if (!pageId) return '';
-    return normalizeClientRatingValue(readFeedbackStore()[pageId] || '');
+    const entry = readFeedbackStore()[pageId];
+    return normalizeClientRatingValue(entry && typeof entry === 'object' ? entry.rating : '');
+}
+
+function newFeedbackVoteId() {
+    try { if (crypto?.randomUUID) return crypto.randomUUID(); } catch (e) { }
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Vote id of this tab for a page; created (and stored) on first use, before
+// the request, so a retry after a lost response still replaces the same vote.
+function getFeedbackVoteId(pageId) {
+    const store = readFeedbackStore();
+    const entry = store[pageId] && typeof store[pageId] === 'object' ? store[pageId] : {};
+    if (typeof entry.vote === 'string' && /^[A-Za-z0-9-]{16,64}$/.test(entry.vote)) return entry.vote;
+    entry.vote = newFeedbackVoteId();
+    store[pageId] = entry;
+    writeFeedbackStore(store);
+    return entry.vote;
 }
 
 function rememberFeedback(pageId, rating) {
     if (!pageId) return;
     const store = readFeedbackStore();
-    store[pageId] = normalizeClientRatingValue(rating);
+    const entry = store[pageId] && typeof store[pageId] === 'object' ? store[pageId] : {};
+    entry.rating = normalizeClientRatingValue(rating);
+    store[pageId] = entry;
     writeFeedbackStore(store);
 }
 

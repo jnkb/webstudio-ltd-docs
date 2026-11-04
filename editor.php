@@ -1132,7 +1132,8 @@ function applyPageRatingData(page, data) {
   page.ratingAverage = typeof data?.ratingAverage === 'number' ? data.ratingAverage : null;
   page.ratingCount = Number(data?.ratingCount || 0);
   page.ratingCsvAvailable = !!data?.ratingCsvAvailable || page.ratingCount > 0;
-  page.viewCount = Number(data?.viewCount || 0);
+  // Callers without a view count (e.g. after a rating) keep the known one.
+  if (data && 'viewCount' in data) page.viewCount = Number(data.viewCount || 0);
   page._ratingsLoaded = true;
 }
 
@@ -4894,6 +4895,12 @@ async function react(r, icon = '') {
   const ratingValue = normalizeClientRatingValue(r);
   const feedbackIcon = icon || FEEDBACK_ICON_BY_VALUE[ratingValue] || '';
   if (!pageId || !ratingValue || feedbackSaving) return;
+  // Same rating as this tab's current vote: nothing to change.
+  if (getStoredFeedback(pageId) === ratingValue) {
+    showToast(t('toastFeedback') + feedbackIcon);
+    return;
+  }
+  const vote = getFeedbackVoteId(pageId);
 
   feedbackSaving = true;
   setFeedbackButtonsDisabled(true);
@@ -4903,7 +4910,7 @@ async function react(r, icon = '') {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: pageId, rating: ratingValue })
+      body: JSON.stringify({ id: pageId, rating: ratingValue, vote })
     });
 
     let data = null;
@@ -4912,7 +4919,8 @@ async function react(r, icon = '') {
 
     rememberFeedback(pageId, ratingValue);
     const page = S.pages.find(p => p.id === pageId);
-    if (page && data) {
+    // Stats come back only for logged-in sessions.
+    if (page && data?.ratingStats) {
       applyPageRatingData(page, {
         ratingStats: data.ratingStats,
         ratingAverage: data.ratingAverage,

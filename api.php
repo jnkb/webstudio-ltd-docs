@@ -119,21 +119,44 @@ function ratingSummaryAverage($summary) {
     return (((int)$summary['1']) - ((int)$summary['-1'])) / $total;
 }
 
+// Ratings CSV (no header): timestamp, rating, anonymized IP, vote key.
+// The vote key (column 4) ties every change of one vote together; only its
+// latest row counts. Older rows without a vote key each count as one vote.
+// Returns the effective rows in order of their last change.
+function effectiveRatingRows($handle) {
+    $rows = [];
+    $legacy = 0;
+    rewind($handle);
+    while (($row = fgetcsv($handle, 0, ',', '"', '\\')) !== false) {
+        if (normalizeRatingValue($row[1] ?? '') === null) continue;
+        $vote = (string)($row[3] ?? '');
+        $key = $vote !== '' ? 'v:' . $vote : 'l:' . $legacy++;
+        unset($rows[$key]); // a changed vote moves to the position of its latest change
+        $rows[$key] = $row;
+    }
+    return array_values($rows);
+}
+
+function ratingSummaryFromRows(array $rows) {
+    $summary = defaultRatingSummary();
+    foreach ($rows as $row) $summary[normalizeRatingValue($row[1])]++;
+    return $summary;
+}
+
+// Recount the summary from the CSV. Holds a shared lock, so it never runs
+// in the middle of recordRating() and can't write back a stale summary.
 function rebuildRatingSummary($id) {
     $summary = defaultRatingSummary();
-    $csvPath = pageRatingsPath($id);
-
-    if (file_exists($csvPath)) {
-        $handle = fopen($csvPath, 'rb');
-        if ($handle !== false) {
-            while (($row = fgetcsv($handle, 0, ',', '"', '\\')) !== false) {
-                $rating = normalizeRatingValue($row[1] ?? '');
-                if ($rating !== null) $summary[$rating]++;
-            }
-            fclose($handle);
+    $handle = @fopen(pageRatingsPath($id), 'rb');
+    if ($handle !== false) {
+        if (flock($handle, LOCK_SH)) {
+            $summary = ratingSummaryFromRows(effectiveRatingRows($handle));
+            jsonWrite(pageRatingSummaryPath($id), $summary);
+            flock($handle, LOCK_UN);
         }
+        fclose($handle);
+        return $summary;
     }
-
     jsonWrite(pageRatingSummaryPath($id), $summary);
     return $summary;
 }
@@ -142,6 +165,29 @@ function loadRatingSummary($id) {
     $summary = sanitizeRatingSummary(jsonRead(pageRatingSummaryPath($id), null));
     if ($summary !== null) return $summary;
     return rebuildRatingSummary($id);
+}
+
+// Store one rating and return the new summary (null on failure). Append,
+// recount and summary write all happen under one exclusive lock on the CSV,
+// so concurrent ratings never lose an update. The recount reads the whole
+// CSV; rating files of a docs page stay small enough for that.
+function recordRating($id, $rating, $anonIp, $voteKey) {
+    $handle = @fopen(pageRatingsPath($id), 'a+b');
+    if ($handle === false) return null;
+
+    $summary = null;
+    if (flock($handle, LOCK_EX)) {
+        $row = [gmdate('c'), $rating, $anonIp];
+        if ($voteKey !== '') $row[] = $voteKey;
+        if (fputcsv($handle, $row, ',', '"', '\\') !== false && fflush($handle)) {
+            $summary = ratingSummaryFromRows(effectiveRatingRows($handle));
+            if (!jsonWrite(pageRatingSummaryPath($id), $summary)) $summary = null;
+        }
+        flock($handle, LOCK_UN);
+    }
+
+    fclose($handle);
+    return $summary;
 }
 
 
@@ -178,21 +224,6 @@ function anonymizeIp($ip) {
     }
 
     return 'unknown';
-}
-
-function appendRating($id, $rating, $anonIp) {
-    $path = pageRatingsPath($id);
-    $handle = fopen($path, 'ab');
-    if ($handle === false) return false;
-
-    $ok = false;
-    if (flock($handle, LOCK_EX)) {
-        $ok = fputcsv($handle, [gmdate('c'), $rating, $anonIp], ',', '"', '\\') !== false;
-        flock($handle, LOCK_UN);
-    }
-
-    fclose($handle);
-    return $ok;
 }
 
 function ok($data = []) {
@@ -329,11 +360,16 @@ case 'save_rating':
     if (!file_exists(pageFilePath($id))) err('Page not found', 404);
     if (!$authed && pageIsPubliclyHidden($id)) err('Page not found', 404);
 
-    $summary = loadRatingSummary($id);
-    $anonIp = anonymizeIp(getClientIp());
-    if (!appendRating($id, $rating, $anonIp)) err('Failed to save rating', 500);
-    $summary[$rating]++;
-    if (!jsonWrite(pageRatingSummaryPath($id), $summary)) err('Failed to update rating summary', 500);
+    // The viewer sends a random vote id per page and browser tab; a later
+    // rating with the same id replaces the earlier one. Only a hash is stored,
+    // so the downloadable CSV can't be used to change someone's vote.
+    $vote = is_string($body['vote'] ?? null) ? $body['vote'] : '';
+    $voteKey = preg_match('/^[A-Za-z0-9-]{16,64}$/', $vote) ? substr(hash('sha256', $vote), 0, 16) : '';
+
+    $summary = recordRating($id, $rating, anonymizeIp(getClientIp()), $voteKey);
+    if ($summary === null) err('Failed to save rating', 500);
+    // The totals are admin-only, like everywhere else.
+    if (!$authed) ok();
     ok([
         'ratingStats' => $summary,
         'ratingAverage' => ratingSummaryAverage($summary),
@@ -345,13 +381,27 @@ case 'download_ratings':
     requireAuth();
     $id = preg_replace('/[^a-zA-Z0-9_-]/', '', $_GET['id'] ?? '');
     if (!$id) err('Missing id');
-    $path = pageRatingsPath($id);
-    if (!file_exists($path)) err('Ratings not found', 404);
+    $handle = @fopen(pageRatingsPath($id), 'rb');
+    if ($handle === false) err('Ratings not found', 404);
+    $rows = [];
+    if (flock($handle, LOCK_SH)) {
+        $rows = effectiveRatingRows($handle);
+        flock($handle, LOCK_UN);
+    }
+    fclose($handle);
+
+    // Only the votes that count: the latest rating of each vote, without the
+    // internal vote key (same three columns as before).
+    $out = fopen('php://temp', 'w+b');
+    foreach ($rows as $row) fputcsv($out, array_slice($row, 0, 3), ',', '"', '\\');
+    rewind($out);
+    $csv = stream_get_contents($out);
+    fclose($out);
 
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="' . $id . '_ratings.csv"');
-    header('Content-Length: ' . filesize($path));
-    readfile($path);
+    header('Content-Length: ' . strlen($csv));
+    echo $csv;
     exit;
 
 // ── SAVE SPACES ──
