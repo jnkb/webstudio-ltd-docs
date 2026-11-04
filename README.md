@@ -22,9 +22,10 @@ The main changes, most significant first:
 
 ### Security & data safety
 
-- **Safer page deletion** — removed pages and related rating files are archived into `data/trash/pages` instead of being deleted outright.
+- **Safer page deletion** — removed pages and their rating and view-count files are archived into `data/trash/pages` instead of being deleted outright.
 - **Drafts hide their subpages** — a draft page and its whole subtree are hidden from the public viewer, API, and link previews; logged-in editors still see them and can switch the draft state in the editor.
 - **Image integrity checks** — corrupt or truncated images are refused on every upload path.
+- **Statistics stay private** — view counts and rating totals are only sent to logged-in editors, never to visitors.
 - **Built-in password change flow** — admins can change the password from settings without rerunning setup.
 
 ### Settings & comfort
@@ -32,7 +33,8 @@ The main changes, most significant first:
 - **Manual space reordering** — spaces can be moved left or right directly in the editor.
 - **Broader translation coverage** — UI texts that were still hardcoded are now routed through the shared i18n layer.
 - **Optional Google Translate button** — the translate button is now optional and can be disabled in settings.
-- **Saved page feedback** — page helpfulness feedback is now persisted through the API.
+- **Saved page feedback** — page helpfulness feedback is persisted through the API; each browser tab casts one vote per page, and changing the rating replaces it instead of adding a new one.
+- **Page view counter and statistics** — the public viewer counts page views; editors see the count next to the feedback stats and a sortable table of all pages with views and ratings.
 - **HTML-capable footer content** — footer areas now support full HTML content instead of plain text only.
 - **Configurable share section visibility** — the share block in the page sidebar can be shown or hidden from settings.
 - **Optional single-space navigation mode** — the top space tabs can be hidden automatically when only one space exists.
@@ -153,7 +155,7 @@ No `npm install`. No environment variables. No database migrations. No Docker. J
 - **Full-text search** — Ctrl+K / ⌘K searches titles, subtitles, and the text of every block type
 - **Table of contents** — auto-generated from headings with scroll spy
 - **Per-page feedback** — readers can mark a page as helpful, neutral, or not helpful; one vote per page per browser tab (changing the rating replaces it), totals and CSV export only for logged-in editors
-- **View counter** — the public viewer counts page views (once per page per browser session, logged-in visits excluded); logged-in editors see the count next to the feedback stats and a sortable table of all pages via the chart icon in the top bar
+- **View counter** — the public viewer counts page views (once per page per browser tab, logged-in visits excluded); logged-in editors see the count next to the feedback stats and a sortable table of all pages via the chart icon in the top bar
 - **Optional single-space mode** — hide the top space switcher when your docs only use one space
 - **Keyboard navigation** — ← → for prev/next page, ? for all shortcuts, with labels that match your platform
 - **Breadcrumbs** and **previous/next** page links
@@ -190,7 +192,7 @@ No `npm install`. No environment variables. No database migrations. No Docker. J
 - **Easy to extend** — it's just HTML, CSS, JS and PHP. No framework, no abstraction layers
 - **AI agent access (MCP)** — let Claude Code or other MCP clients read and write your docs, see [MCP.md](MCP.md)
 - **i18n ready** — English, German, and Slovak built-in, with broader translation coverage across the UI
-- **Safer file-based cleanup** — deleted pages and related rating files are moved into `data/trash/pages`
+- **Safer file-based cleanup** — deleted pages and their rating and view-count files are moved into `data/trash/pages`
 - **PHP 7.4+ friendly** — updated to stay compatible with current PHP 8.5 behavior
 - **Page templates** — Blank, Documentation, Changelog, API Reference, Tutorial, FAQ
 - **Auto-save** — never lose work
@@ -265,10 +267,12 @@ your-docs-site/
 │   ├── mcp_upload_tickets.json ← Open single-use MCP upload URLs (hashes only)
 │   ├── settings.json  ← Site configuration
 │   ├── spaces.json    ← Space definitions
-│   ├── pages/         ← One JSON file per page
+│   ├── pages/         ← One JSON file per page, plus per page:
+│   │                     <id>_ratings.csv (rating log), <id>_rating.json (totals),
+│   │                     <id>_views.txt (view counter)
 │   ├── tmp_uploads/   ← Temporary parts of chunked video uploads
 │   └── trash/
-│       └── pages/     ← Archived deleted pages and rating files
+│       └── pages/     ← Archived deleted pages with their rating and view files
 ├── images/            ← Uploaded images
 │   └── og/            ← Auto-generated social sharing images
 └── videos/            ← Uploaded videos
