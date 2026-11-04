@@ -611,6 +611,36 @@ async function loadPageContent(pageId) {
 }
 
 // ════════════════════════════════════════
+//  VIEW COUNTER — fire and forget
+//  Counts a page once per browser session (tab): re-renders, reloads and
+//  back/forward don't count again. Every failure is swallowed on purpose; a
+//  lost view must never show up as an error. The server skips logged-in
+//  admins and drafts.
+// ════════════════════════════════════════
+const VIEW_TRACK_STORAGE_KEY = 'docs_viewed_pages';
+const trackedViewsInMemory = new Set();
+
+function trackPageView(pageId) {
+  try {
+    if (!pageId || trackedViewsInMemory.has(pageId)) return;
+    trackedViewsInMemory.add(pageId);
+    let seen = [];
+    try { seen = JSON.parse(sessionStorage.getItem(VIEW_TRACK_STORAGE_KEY) || '[]'); } catch (e) { }
+    if (!Array.isArray(seen)) seen = [];
+    if (seen.includes(pageId)) return;
+    seen.push(pageId);
+    try { sessionStorage.setItem(VIEW_TRACK_STORAGE_KEY, JSON.stringify(seen.slice(-500))); } catch (e) { }
+    fetch(withAccessToken('api.php?action=track_view'), {
+      method: 'POST',
+      credentials: 'same-origin',
+      keepalive: true,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: pageId })
+    }).catch(() => { });
+  } catch (e) { }
+}
+
+// ════════════════════════════════════════
 //  UTILITIES (shared helpers in assets/shared.js: esc, sanitizeFooterHtml,
 //  footerHasText, applyFooterDisplay, showToast, formatDate, slugify,
 //  highlight, getBlockSearchText, getPageTextSnippet, detectCodeLanguage)
@@ -1006,6 +1036,8 @@ function renderPage() {
     updatePageNavBottom(null);
     return;
   }
+
+  trackPageView(page.id);
 
   // Breadcrumb — full ancestor trail
   const ancestors = [];

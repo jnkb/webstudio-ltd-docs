@@ -311,6 +311,9 @@ $_ogData = (function() {
         <div class="translate-lang" data-lang="ru" onclick="translateTo('ru')"><span class="flag">🇷🇺</span> Русский</div>
       </div>
     </div>
+    <button class="icon-btn admin-only" onclick="openPageStats()" data-i18n-attr="title" data-i18n="statsTitle" title="Page statistics" id="page-stats-btn" style="display:none">
+      <i class="fa-solid fa-chart-simple"></i>
+    </button>
     <button class="icon-btn admin-only" onclick="openSettings()" data-i18n-attr="title" data-i18n="btnSettings" title="Settings" id="settings-btn" style="display:none">
       <i class="fa-solid fa-gear"></i>
     </button>
@@ -546,6 +549,18 @@ $_ogData = (function() {
         <button class="btn btn-primary" onclick="confirmPageEdit()"><i class="fa-solid fa-check"></i> <span data-i18n="btnSaveChanges">Save</span></button>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- Page statistics modal (views + feedback of every page) -->
+<div class="overlay" id="page-stats-modal" onclick="if(event.target===this)closePageStats()">
+  <div class="modal page-stats-modal">
+    <div class="page-stats-head">
+      <div class="modal-title" data-i18n="statsTitle">Page statistics</div>
+      <button class="icon-btn" type="button" onclick="closePageStats()" data-i18n-attr="aria-label" data-i18n="btnClose" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="page-stats-hint" data-i18n="statsHint">Views are counted in the public viewer, once per page per browser session. Visits while logged in are not counted.</div>
+    <div class="page-stats-body" id="page-stats-body"></div>
   </div>
 </div>
 
@@ -1117,6 +1132,7 @@ function applyPageRatingData(page, data) {
   page.ratingAverage = typeof data?.ratingAverage === 'number' ? data.ratingAverage : null;
   page.ratingCount = Number(data?.ratingCount || 0);
   page.ratingCsvAvailable = !!data?.ratingCsvAvailable || page.ratingCount > 0;
+  page.viewCount = Number(data?.viewCount || 0);
   page._ratingsLoaded = true;
 }
 
@@ -1126,6 +1142,7 @@ function clearPageRatingData(page) {
   delete page.ratingAverage;
   delete page.ratingCount;
   delete page.ratingCsvAvailable;
+  delete page.viewCount;
   page._ratingsLoaded = false;
 }
 
@@ -1174,8 +1191,20 @@ async function save() {
   } catch(e) { console.warn('Save error:', e); }
 }
 
+// Page data as it is stored: without the editor-only fields that
+// load_page/applyPageRatingData attach (they would otherwise end up in the
+// page file and be served to the public by ?action=load).
+function pageDataForStorage(page) {
+  const {
+    _contentLoaded, _ratingsLoaded,
+    ratingStats, ratingAverage, ratingCount, ratingCsvAvailable, viewCount,
+    ...pageData
+  } = page;
+  return pageData;
+}
+
 async function savePageToServer(page) {
-  const { _contentLoaded, ...pageData } = page;
+  const pageData = pageDataForStorage(page);
   pageData.updatedAt = new Date().toISOString();
   page.updatedAt = pageData.updatedAt;
   try {
@@ -1187,7 +1216,7 @@ async function savePageToServer(page) {
   } catch(e) { console.warn('Save page error:', e); }
 }
 
-// Rename a page's id on the server (renames file + ratings, re-parents children).
+// Rename a page's id on the server (renames file + ratings + views, re-parents children).
 async function renamePageOnServer(oldId, newId, meta) {
   try {
     const r = await fetch('api.php?action=rename_page', {
@@ -1204,11 +1233,7 @@ async function renamePageOnServer(oldId, newId, meta) {
 // Reordering is not a content edit, so updatedAt is intentionally NOT bumped.
 async function persistPages(pages) {
   await Promise.all((pages || []).map(p => {
-    const {
-      _contentLoaded, _ratingsLoaded,
-      ratingStats, ratingAverage, ratingCount, ratingCsvAvailable,
-      ...pageData
-    } = p;
+    const pageData = pageDataForStorage(p);
     return fetch('api.php?action=save_page', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
@@ -4705,9 +4730,14 @@ function renderAdminRatingPanel(page) {
   const total = Number(page.ratingCount || 0);
   const csvUrl = `api.php?action=download_ratings&id=${encodeURIComponent(page.id)}`;
 
+  const views = Number(page.viewCount || 0);
   slot.innerHTML = `
     <div class="toc-sep"></div>
     <div class="toc-admin-rating">
+      <div class="toc-rating-avg-row toc-views-row">
+        <span class="toc-rating-avg-label"><i class="fa-regular fa-eye"></i> ${t('statsViews')}</span>
+        <strong class="toc-rating-avg-value">${formatStatNumber(views)}</strong>
+      </div>
       <div class="toc-feedback-label">${t('ratingStatsTitle')}</div>
       <div class="toc-rating-avg-row">
         <span class="toc-rating-avg-label">${t('ratingAverage')}</span>
@@ -4720,7 +4750,133 @@ function renderAdminRatingPanel(page) {
       <div class="toc-rating-pill" title="${t('ratingPositive')}"><span>👍</span><strong>${Number(stats['1'] || 0)}</strong></div>
       </div>
       ${page.ratingCsvAvailable ? `<a class="toc-download-btn" href="${csvUrl}" download><i class="fa-solid fa-download"></i><span>${t('ratingDownloadCsv')}</span></a>` : ''}
+      <button class="toc-download-btn" type="button" onclick="openPageStats()"><i class="fa-solid fa-chart-simple"></i><span>${t('statsAllPages')}</span></button>
     </div>
+  `;
+}
+
+function formatStatNumber(value) {
+  const locale = LANG_LOCALES[S.settings?.lang || DEFAULT_INTERFACE_LANG] || LANG_LOCALES[DEFAULT_INTERFACE_LANG];
+  return Number(value || 0).toLocaleString(locale);
+}
+
+// ════════════════════════════════════════
+//  PAGE STATISTICS — table of all pages (views + feedback), editor only
+// ════════════════════════════════════════
+const pageStatsState = { rows: [], sort: 'views', dir: -1 };
+
+async function openPageStats() {
+  if (!S.authed) return;
+  const body = document.getElementById('page-stats-body');
+  body.innerHTML = `<div class="page-stats-empty">${t('statsLoading')}</div>`;
+  openModal('page-stats-modal');
+  let stats = null;
+  try {
+    const r = await fetch('api.php?action=page_stats', { credentials: 'same-origin' });
+    const d = await r.json();
+    if (d && d.ok && d.stats && typeof d.stats === 'object') stats = d.stats;
+  } catch (e) { }
+  if (!stats) {
+    body.innerHTML = `<div class="page-stats-empty">${t('statsLoadFailed')}</div>`;
+    return;
+  }
+  const spaceNames = Object.fromEntries((S.spaces || []).map(sp => [sp.id, sp.name || '']));
+  pageStatsState.rows = S.pages.map(p => {
+    const st = stats[p.id] || {};
+    return {
+      id: p.id,
+      title: p.title || p.id,
+      icon: p.icon || 'fa-file',
+      space: spaceNames[p.spaceId] || '',
+      hidden: !!(p.draft || findDraftAncestor(p)),
+      views: Number(st.views || 0),
+      ratingCount: Number(st.ratingCount || 0),
+      ratingAverage: typeof st.ratingAverage === 'number' ? st.ratingAverage : null,
+    };
+  });
+  renderPageStatsTable();
+}
+
+function closePageStats() {
+  closeModal('page-stats-modal');
+}
+
+function sortPageStats(key) {
+  if (pageStatsState.sort === key) pageStatsState.dir *= -1;
+  else {
+    pageStatsState.sort = key;
+    pageStatsState.dir = (key === 'title' || key === 'space') ? 1 : -1;
+  }
+  renderPageStatsTable();
+}
+
+function openPageFromStats(id) {
+  closePageStats();
+  const pg = S.pages.find(p => p.id === id);
+  if (!pg) return;
+  if (pg.spaceId !== S.currentSpaceId) {
+    S.currentSpaceId = pg.spaceId;
+    renderSpaces();
+  }
+  navigateTo(id);
+}
+
+function renderPageStatsTable() {
+  const body = document.getElementById('page-stats-body');
+  if (!body) return;
+  const { rows, sort, dir } = pageStatsState;
+  if (!rows.length) {
+    body.innerHTML = `<div class="page-stats-empty">${t('statsNoPages')}</div>`;
+    return;
+  }
+  const locale = LANG_LOCALES[S.settings?.lang || DEFAULT_INTERFACE_LANG] || LANG_LOCALES[DEFAULT_INTERFACE_LANG];
+  const sorted = rows.slice().sort((a, b) => {
+    let av = a[sort], bv = b[sort];
+    // Pages without ratings always go last when sorting by average.
+    if (sort === 'ratingAverage') {
+      if (av === null && bv === null) return 0;
+      if (av === null) return 1;
+      if (bv === null) return -1;
+    }
+    const cmp = typeof av === 'string' ? av.localeCompare(bv, locale) : av - bv;
+    return (cmp || a.title.localeCompare(b.title, locale)) * (cmp ? dir : 1);
+  });
+  const totalViews = rows.reduce((sum, r) => sum + r.views, 0);
+  const totalRatings = rows.reduce((sum, r) => sum + r.ratingCount, 0);
+  const th = (key, label, cls = '') => {
+    const active = sort === key;
+    const arrow = active ? (dir > 0 ? 'fa-arrow-up-short-wide' : 'fa-arrow-down-wide-short') : 'fa-sort';
+    return `<th class="${cls}${active ? ' active' : ''}"><button type="button" onclick="sortPageStats('${key}')">${esc(label)} <i class="fa-solid ${arrow}"></i></button></th>`;
+  };
+  body.innerHTML = `
+    <table class="page-stats-table">
+      <thead><tr>
+        ${th('title', t('statsColPage'))}
+        ${th('space', t('statsColSpace'), 'page-stats-col-space')}
+        ${th('views', t('statsViews'), 'num')}
+        ${th('ratingCount', t('statsColRatings'), 'num')}
+        ${th('ratingAverage', t('ratingAverage'), 'num')}
+      </tr></thead>
+      <tbody>
+        ${sorted.map(r => `<tr>
+          <td><button type="button" class="page-stats-page" onclick="openPageFromStats(${esc(JSON.stringify(r.id))})">
+            <i class="fa-solid ${esc(r.icon)}"></i><span>${esc(r.title)}</span>
+            ${r.hidden ? `<span class="nav-draft-badge" title="${esc(t('pageDraftBadge'))}"><i class="fa-solid fa-eye-slash"></i></span>` : ''}
+          </button></td>
+          <td class="page-stats-col-space">${esc(r.space)}</td>
+          <td class="num">${r.views.toLocaleString(locale)}</td>
+          <td class="num">${r.ratingCount.toLocaleString(locale)}</td>
+          <td class="num">${r.ratingCount > 0 ? formatRatingAverage(r.ratingAverage) : '–'}</td>
+        </tr>`).join('')}
+      </tbody>
+      <tfoot><tr>
+        <td>${t('statsTotal')}</td>
+        <td class="page-stats-col-space"></td>
+        <td class="num">${totalViews.toLocaleString(locale)}</td>
+        <td class="num">${totalRatings.toLocaleString(locale)}</td>
+        <td class="num"></td>
+      </tr></tfoot>
+    </table>
   `;
 }
 
@@ -4820,6 +4976,7 @@ document.addEventListener('keydown', e => {
     // A token is shown only once: Escape closes just the token modal, not the settings behind it.
     if (closeMcpTokenModal()) return;
     closeModal('add-modal');
+    closePageStats();
     closeSettings();
     closeSearchDD();
     closeChangePassword();

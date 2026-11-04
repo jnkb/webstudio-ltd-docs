@@ -292,6 +292,45 @@ function pageRatingSummaryPath($id) {
     return PAGES_DIR . "/{$id}_rating.json";
 }
 
+// View counter of a page: a tiny text file holding one decimal number. Not
+// .json, so pageJsonFiles() and every *.json glob ignore it.
+function pageViewsPath($id) {
+    return PAGES_DIR . "/{$id}_views.txt";
+}
+
+// Count one view. Concurrent requests serialize on an exclusive flock of the
+// counter file itself (one file per page, so pages never wait on each other);
+// the read-increment-write inside the lock takes microseconds. The number
+// never gets shorter, so it is overwritten in place without truncating first:
+// a crash mid-write can't leave an empty file behind. Returns false on any
+// failure and never calls err(): a lost view is not worth an error.
+function incrementPageViews($id): bool {
+    $h = @fopen(pageViewsPath($id), 'c+');
+    if ($h === false) return false;
+    $ok = false;
+    if (@flock($h, LOCK_EX)) {
+        $next = (string)(max(0, (int)trim((string)stream_get_contents($h))) + 1);
+        $ok = rewind($h) && fwrite($h, $next) === strlen($next) && fflush($h);
+        if ($ok) ftruncate($h, strlen($next)); // drops stray bytes, never digits
+        flock($h, LOCK_UN);
+    }
+    fclose($h);
+    return $ok;
+}
+
+// Current view count (0 if the page was never counted or the file is unreadable).
+function readPageViews($id): int {
+    $h = @fopen(pageViewsPath($id), 'rb');
+    if ($h === false) return 0;
+    $n = 0;
+    if (@flock($h, LOCK_SH)) {
+        $n = max(0, (int)trim((string)stream_get_contents($h)));
+        flock($h, LOCK_UN);
+    }
+    fclose($h);
+    return $n;
+}
+
 function sanitizePageId($id) {
     return preg_replace('/[^a-zA-Z0-9_-]/', '', (string)$id);
 }
@@ -345,7 +384,7 @@ function moveDeletedArtifactToTrash($path, $batchPrefix, $pageCounter = null) {
 }
 
 function trashPageArtifacts($id, $batchPrefix, $pageCounter = null) {
-    foreach ([pageFilePath($id), pageRatingsPath($id), pageRatingSummaryPath($id)] as $path) {
+    foreach ([pageFilePath($id), pageRatingsPath($id), pageRatingSummaryPath($id), pageViewsPath($id)] as $path) {
         moveDeletedArtifactToTrash($path, $batchPrefix, $pageCounter);
     }
 }
@@ -409,7 +448,7 @@ function pageIsPubliclyHidden($id): bool {
     return isset(publiclyHiddenPageIds(array_values($chain))[$id]);
 }
 
-// Change a page's id (moves the page file + ratings, re-parents direct
+// Change a page's id (moves the page file + ratings + views, re-parents direct
 // children) and/or apply edited metadata. Content is kept as stored.
 // Calls err() on failure; returns the page as written.
 function renameStoredPage($oldId, $newId, array $meta = []): array {
@@ -432,6 +471,7 @@ function renameStoredPage($oldId, $newId, array $meta = []): array {
         @unlink($oldFile);
         if (file_exists(pageRatingsPath($oldId)))       @rename(pageRatingsPath($oldId), pageRatingsPath($newId));
         if (file_exists(pageRatingSummaryPath($oldId))) @rename(pageRatingSummaryPath($oldId), pageRatingSummaryPath($newId));
+        if (file_exists(pageViewsPath($oldId)))         @rename(pageViewsPath($oldId), pageViewsPath($newId));
         // Re-parent direct children so the page tree stays intact.
         foreach (pageJsonFiles() as $file) {
             if ($file === pageFilePath($newId)) continue;

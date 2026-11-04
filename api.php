@@ -52,6 +52,18 @@ function publicSettings($s) {
     return $out;
 }
 
+// Fields the editor attaches to page objects at runtime (load_page stats).
+// Older editor versions saved them into the page files, so they are stripped
+// on every read and write: never served, never stored.
+function stripClientOnlyPageFields($page) {
+    if (!is_array($page)) return $page;
+    foreach (['_contentLoaded', '_ratingsLoaded', 'ratingStats', 'ratingAverage',
+              'ratingCount', 'ratingCsvAvailable', 'viewCount'] as $k) {
+        unset($page[$k]);
+    }
+    return $page;
+}
+
 function uploadErrorMessage($code) {
     $messages = [
         UPLOAD_ERR_INI_SIZE => 'File too large',
@@ -236,7 +248,7 @@ case 'load':
         foreach (pageJsonFiles() as $file) {
             $page = jsonRead($file);
             if (!$page) continue;
-            $pages[] = $page;
+            $pages[] = stripClientOnlyPageFields($page);
         }
     }
     // Public visitors never see drafts, nor any page below a draft (a draft
@@ -256,7 +268,7 @@ case 'load_page':
     global $authed;
     $id = preg_replace('/[^a-zA-Z0-9_-]/', '', $_GET['id'] ?? '');
     if (!$id) err('Missing id');
-    $page = jsonRead(pageFilePath($id));
+    $page = stripClientOnlyPageFields(jsonRead(pageFilePath($id)));
     if (!$page) err('Page not found', 404);
     // Same 404 as a missing page so drafts (and pages below a draft) can't be
     // probed by id.
@@ -268,8 +280,44 @@ case 'load_page':
         $response['ratingAverage'] = ratingSummaryAverage($summary);
         $response['ratingCount'] = ratingSummaryTotal($summary);
         $response['ratingCsvAvailable'] = file_exists(pageRatingsPath($id));
+        $response['viewCount'] = readPageViews($id);
     }
     ok($response);
+
+// ── TRACK VIEW — the public viewer counts one page view ──
+// Best effort by design: the viewer fires and forgets, so this always answers
+// 200 (counted: false when nothing was stored). Logged-in admins are not
+// counted, and neither are drafts or unknown pages.
+case 'track_view':
+    requirePost();
+    $body = json_decode(file_get_contents('php://input'), true);
+    $id = sanitizePageId(is_array($body) ? ($body['id'] ?? '') : '');
+    $counted = $id !== '' && !$authed
+        && file_exists(pageFilePath($id))
+        && !pageIsPubliclyHidden($id)
+        && incrementPageViews($id);
+    ok(['counted' => $counted]);
+
+// ── PAGE STATS — views + feedback of every page, editor only ──
+case 'page_stats':
+    requireAuth();
+    $stats = [];
+    foreach (pageJsonFiles() as $file) {
+        $id = basename($file, '.json');
+        // Read the stored summary; rebuild only when ratings exist but the
+        // summary is missing (loadRatingSummary() would create an empty
+        // summary file for every page without ratings).
+        $summary = sanitizeRatingSummary(jsonRead(pageRatingSummaryPath($id), null));
+        if ($summary === null) {
+            $summary = file_exists(pageRatingsPath($id)) ? rebuildRatingSummary($id) : defaultRatingSummary();
+        }
+        $stats[$id] = [
+            'views'         => readPageViews($id),
+            'ratingCount'   => ratingSummaryTotal($summary),
+            'ratingAverage' => ratingSummaryAverage($summary),
+        ];
+    }
+    ok(['stats' => $stats]);
 
 // ── SAVE RATING — public feedback for readers ──
 case 'save_rating':
@@ -329,10 +377,10 @@ case 'save_page':
     $page = $body['page'] ?? null;
     if (!$page || empty($page['id'])) err('Missing page or id');
     $id = sanitizePageId($page['id']);
-    jsonWrite(pageFilePath($id), $page);
+    jsonWrite(pageFilePath($id), stripClientOnlyPageFields($page));
     ok();
 
-// ── RENAME PAGE — change a page's id (moves file + ratings, re-parents children) ──
+// ── RENAME PAGE — change a page's id (moves file + ratings + views, re-parents children) ──
 case 'rename_page':
     requireAuth();
     $body  = json_decode(file_get_contents('php://input'), true);
@@ -364,7 +412,7 @@ case 'save_pages':
     foreach ($pages as $page) {
         if (empty($page['id'])) continue;
         $id = sanitizePageId($page['id']);
-        jsonWrite(pageFilePath($id), $page);
+        jsonWrite(pageFilePath($id), stripClientOnlyPageFields($page));
     }
     ok();
 

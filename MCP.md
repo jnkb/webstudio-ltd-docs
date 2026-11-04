@@ -139,7 +139,7 @@ All 23 tools come with descriptions and JSON schemas that the agent reads itself
 | `edit_blocks` | Change single blocks without resending the page: `insert`, `replace`, `delete`, `move`. Operations run in order; one invalid operation cancels them all. Supports `if_updated_at`. |
 | `move_page` | Move a page with its subpages under another parent, to the root, into another space, or to another position or section. |
 | `reorder_pages` | Set the order of all siblings at once (root pages of a space or subpages of one parent). |
-| `set_page_id` | Change a page ID (its URL). Subpages, ratings, and all internal links and card links in every page are updated. |
+| `set_page_id` | Change a page ID (its URL). Subpages, ratings, view counts, and all internal links and card links in every page are updated. |
 | `delete_page` | Move a page to the trash. A page with subpages needs `include_children: true`. Reports pages that still link to it. |
 | `rename_section` | Rename a sidebar section of a space, merge it into an existing one, or remove the grouping (`to: ""`). |
 | `set_section` | Put root pages into a section or take them out of it. |

@@ -153,6 +153,7 @@ No `npm install`. No environment variables. No database migrations. No Docker. J
 - **Full-text search** — Ctrl+K / ⌘K searches titles, subtitles, and the text of every block type
 - **Table of contents** — auto-generated from headings with scroll spy
 - **Per-page feedback** — readers can mark a page as helpful, neutral, or not helpful, and ratings are saved
+- **View counter** — the public viewer counts page views (once per page per browser session, logged-in visits excluded); logged-in editors see the count next to the feedback stats and a sortable table of all pages via the chart icon in the top bar
 - **Optional single-space mode** — hide the top space switcher when your docs only use one space
 - **Keyboard navigation** — ← → for prev/next page, ? for all shortcuts, with labels that match your platform
 - **Breadcrumbs** and **previous/next** page links
