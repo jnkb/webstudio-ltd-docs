@@ -188,6 +188,9 @@ $_ogData = (function() {
         'image'    => htmlspecialchars($imgUrl, ENT_QUOTES),
         'url'      => htmlspecialchars($url, ENT_QUOTES),
         'fullTitle'=> htmlspecialchars($page ? "{$title} — {$siteName}" : $siteName, ENT_QUOTES),
+        // Saved site theme, rendered into <html data-theme> so the first paint
+        // already uses it (otherwise every full load flashes dark first).
+        'theme'    => (($settings['theme'] ?? 'dark') === 'light') ? 'light' : 'dark',
     ];
 })();
 ?>
@@ -203,9 +206,13 @@ $_ogData = (function() {
  ║  consider giving us a ⭐ on GitHub.                      ║
  ╚══════════════════════════════════════════════════════════╝
 -->
-<html lang="de" data-theme="dark">
+<html lang="de" data-theme="<?= $_ogData['theme'] ?>">
 <head>
 <meta charset="UTF-8">
+<script>
+// Apply the visitor's theme choice (THEME_STORAGE_KEY) before the first paint.
+try { var _tp = localStorage.getItem('ws_docs_theme'); if (_tp === 'light' || _tp === 'dark') document.documentElement.dataset.theme = _tp; } catch (e) {}
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="generator" content="Webstudio Docs — webstudio.ltd">
 <meta name="description" content="<?= $_ogData['desc'] ?>">
@@ -224,7 +231,7 @@ $_ogData = (function() {
 <link rel="icon" id="dynamic-favicon" href="data:,">
 <title id="doc-title"><?= $_ogData['fullTitle'] ?></title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" id="prism-theme">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/<?= $_ogData['theme'] === 'light' ? 'prism.min.css' : 'prism-tomorrow.min.css' ?>" id="prism-theme">
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="<?= assetUrl('assets/app.css') ?>">
 
