@@ -628,12 +628,12 @@ h3.ce-header { font-size: 17px; font-weight: 600; margin: 0 0 2px; }
 /* Syntax highlighted code (read mode overlay) */
 .ce-code .code-highlighted {
   position: absolute; inset: 0; pointer-events: none;
-  padding: 14px 16px; overflow: auto;
+  padding: 14px 16px; overflow: hidden; /* scrollLeft synced from the textarea */
   font-family: var(--mono) !important; font-size: 13px !important; line-height: 1.6 !important;
   background: transparent; z-index: 1;
 }
-.ce-code .code-highlighted pre { margin: 0; background: transparent !important; padding: 0 !important; border: none !important; }
-.ce-code .code-highlighted code { font-family: var(--mono) !important; font-size: 13px !important; line-height: 1.6 !important; background: transparent !important; }
+.ce-code .code-highlighted pre { margin: 0; background: transparent !important; padding: 0 !important; border: none !important; overflow: visible !important; white-space: pre !important; width: max-content; font-family: var(--mono) !important; font-size: 13px !important; line-height: 1.6 !important; tab-size: 4; }
+.ce-code .code-highlighted code { font-family: var(--mono) !important; font-size: 13px !important; line-height: 1.6 !important; background: transparent !important; tab-size: 4; }
 /* Light theme Prism overrides */
 [data-theme="light"] .ce-code .code-highlighted pre[class*="language-"],
 [data-theme="light"] .ce-code .code-highlighted code[class*="language-"] { background: transparent !important; text-shadow: none !important; }
@@ -642,13 +642,20 @@ h3.ce-header { font-size: 17px; font-weight: 600; margin: 0 0 2px; }
   color: var(--text) !important;
   font-family: var(--mono) !important;
   font-size: 13px !important;
-  min-height: 80px !important;
+  min-height: 48px !important;
   padding: 14px 16px !important;
   line-height: 1.6 !important;
   border: none !important;
   outline: none !important;
   box-shadow: none !important;
-  resize: vertical !important;
+  /* Height follows the content (autosizeCodeTextarea() in editor.php);
+     long lines scroll horizontally like in the public viewer. */
+  resize: none !important;
+  overflow-y: hidden !important;
+  overflow-x: auto !important;
+  white-space: pre !important;
+  overflow-wrap: normal !important;
+  tab-size: 4;
   border-radius: 0 !important;
   width: 100% !important;
   display: block !important;

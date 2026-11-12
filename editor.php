@@ -6061,7 +6061,37 @@ function injectCodeCopyButtons() {
   });
   // Syntax highlighting in read mode
   if (!S.editMode && typeof Prism !== 'undefined') highlightCodeBlocks();
+  document.querySelectorAll('.ce-code__textarea').forEach(autosizeCodeTextarea);
 }
+
+// Code blocks grow with their content instead of scrolling inside a fixed
+// 80px box (CSS: overflow-y hidden, white-space pre). The page scroll position
+// is restored because collapsing to 'auto' briefly shortens the document.
+function autosizeCodeTextarea(ta) {
+  if (!ta || !ta.isConnected) return;
+  const y = window.scrollY;
+  ta.style.height = 'auto';
+  // offsetHeight - clientHeight = horizontal scrollbar (if any)
+  ta.style.height = (ta.scrollHeight + ta.offsetHeight - ta.clientHeight) + 'px';
+  if (window.scrollY !== y) window.scrollTo(window.scrollX, y);
+}
+
+document.addEventListener('input', e => {
+  if (e.target.classList?.contains('ce-code__textarea')) autosizeCodeTextarea(e.target);
+});
+// Keep the read-mode highlight overlay aligned with horizontal scrolling
+document.addEventListener('scroll', e => {
+  const ta = e.target;
+  if (!ta.classList?.contains('ce-code__textarea')) return;
+  const overlay = ta.closest('.ce-code')?.querySelector('.code-highlighted');
+  if (overlay) overlay.scrollLeft = ta.scrollLeft;
+}, true);
+let _codeResizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(_codeResizeTimer);
+  _codeResizeTimer = setTimeout(() => document.querySelectorAll('.ce-code__textarea').forEach(autosizeCodeTextarea), 150);
+});
+if (document.fonts?.ready) document.fonts.ready.then(() => document.querySelectorAll('.ce-code__textarea').forEach(autosizeCodeTextarea));
 
 function highlightCodeBlocks() {
   document.querySelectorAll('.ce-code').forEach(block => {
