@@ -151,7 +151,7 @@ All 23 tools come with descriptions and JSON schemas that the agent reads itself
 | `create_space` | Create a space (top-level tab), added after the existing ones. |
 | `update_space` | Rename a space, change its icon, or move its tab (`position`). |
 | `delete_space` | Delete a space and move all its pages to the trash. Needs `confirm: true`; the last space cannot be deleted. |
-| `update_settings` | Change site name, tab title, accent color, default theme, interface language, footer, and the toggles for single-space tabs, share section, and translate widget. Logo and favicon can only be changed in the editor. |
+| `update_settings` | Change site name, tab title, accent color, default theme, interface language, footer, and the toggles for single-space tabs, share section, translate widget, reading time, and page sync with an embedding page (`embedMessagingEnabled`). Logo and favicon can only be changed in the editor. |
 
 ### Media
 

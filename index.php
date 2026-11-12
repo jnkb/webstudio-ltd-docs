@@ -429,6 +429,7 @@ let S = {
     shareSectionEnabled: true,
     readingTimeEnabled: true,
     translateEnabled: true,
+    embedMessagingEnabled: false,
   }
 };
 // scrollSpyObserver is declared in assets/shared.js
@@ -827,16 +828,71 @@ function toggleChildren(btn, pageId) {
 // ════════════════════════════════════════
 //  NAVIGATION
 // ════════════════════════════════════════
-async function navigateTo(pageId) {
+// opts.replaceHistory: replace the current history entry instead of adding one
+// (used for navigation requested by the embedding page, see handleEmbedMessage).
+async function navigateTo(pageId, opts = {}) {
   closeMobileSidebar();
   if (scrollSpyObserver) { scrollSpyObserver.disconnect(); scrollSpyObserver = null; }
   S.currentPageId = pageId;
   renderNav();
   await loadPageContent(pageId);
   renderPage();
-  history.pushState({ pageId }, '', buildViewerUrl(pageId));
+  if (opts.replaceHistory) history.replaceState({ pageId }, '', buildViewerUrl(pageId));
+  else history.pushState({ pageId }, '', buildViewerUrl(pageId));
   document.querySelector('.content-wrap')?.scrollTo(0, 0);
   window.scrollTo(0, 0);
+}
+
+// ════════════════════════════════════════
+//  EMBED MESSAGING (postMessage with the embedding page)
+//  Only active when the viewer runs in an iframe and the site setting
+//  embedMessagingEnabled is on. Contract:
+//    viewer → parent: { type: 'webstudio-docs:page-changed', pageId }
+//    parent → viewer: { type: 'webstudio-docs:navigate', pageId }
+// ════════════════════════════════════════
+const EMBED_MSG_PAGE_CHANGED = 'webstudio-docs:page-changed';
+const EMBED_MSG_NAVIGATE = 'webstudio-docs:navigate';
+let embedLastSentPageId = null;
+let embedListenerBound = false;
+
+function isEmbedded() {
+  try { return window.parent !== window; } catch (e) { return true; }
+}
+
+function embedMessagingActive() {
+  return isEmbedMessagingEnabled() && isEmbedded();
+}
+
+// Called from renderPage(); renderPage() runs after every displayed page change
+// (initial load, navigateTo, popstate in shared.js, space switch).
+function notifyEmbedPageChanged(pageId) {
+  if (!pageId) { embedLastSentPageId = null; return; }
+  if (!embedMessagingActive() || pageId === embedLastSentPageId) return;
+  embedLastSentPageId = pageId;
+  try { window.parent.postMessage({ type: EMBED_MSG_PAGE_CHANGED, pageId }, '*'); } catch (e) { }
+}
+
+function handleEmbedMessage(event) {
+  if (!embedMessagingActive() || event.source !== window.parent) return;
+  const data = event.data;
+  if (!data || typeof data !== 'object' || data.type !== EMBED_MSG_NAVIGATE || typeof data.pageId !== 'string') return;
+
+  const target = data.pageId === ''
+    ? firstRootPage(spacePages())
+    : S.pages.find(p => p.id === data.pageId);
+  if (!target || target.id === S.currentPageId) return;
+
+  if (target.spaceId !== S.currentSpaceId) {
+    S.currentSpaceId = target.spaceId;
+    renderSpaces();
+  }
+  navigateTo(target.id, { replaceHistory: true });
+}
+
+function bindEmbedMessaging() {
+  if (embedListenerBound || !embedMessagingActive()) return;
+  embedListenerBound = true;
+  window.addEventListener('message', handleEmbedMessage);
 }
 
 // ════════════════════════════════════════
@@ -1034,10 +1090,12 @@ function renderPage() {
     syncFeedbackButtons();
     updateTOC();
     updatePageNavBottom(null);
+    notifyEmbedPageChanged(null);
     return;
   }
 
   trackPageView(page.id);
+  notifyEmbedPageChanged(page.id);
 
   // Breadcrumb — full ancestor trail
   const ancestors = [];
@@ -1294,6 +1352,7 @@ async function react(r, icon = '') {
       renderSpaces();
       renderNav();
       renderPage();
+      bindEmbedMessaging();
 
       overlay.style.opacity = '0';
       overlay.style.transition = 'opacity 0.2s';

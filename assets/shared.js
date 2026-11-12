@@ -289,6 +289,7 @@ function isTranslateEnabled() { return S.settings.translateEnabled !== false; }
 function isHideSingleSpaceTabsEnabled() { return S.settings.hideSingleSpaceTabs === true; }
 function isShareSectionEnabled() { return S.settings.shareSectionEnabled !== false; }
 function isReadingTimeEnabled() { return S.settings.readingTimeEnabled !== false; }
+function isEmbedMessagingEnabled() { return S.settings.embedMessagingEnabled === true; }
 function shouldHideSpaceTabs() { return isHideSingleSpaceTabsEnabled() && S.spaces.length <= 1; }
 
 function applySpaceTabsVisibility() {

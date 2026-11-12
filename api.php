@@ -44,7 +44,7 @@ function publicSettings($s) {
     $allow = ['siteName','tabTitle','accentColor','theme','lang',
               'logoDataUrl','faviconDataUrl','footerText','footerTailHtml',
               'hideSingleSpaceTabs','shareSectionEnabled','translateEnabled',
-              'readingTimeEnabled'];
+              'readingTimeEnabled','embedMessagingEnabled'];
     $out = [];
     foreach ($allow as $k) {
         if (array_key_exists($k, $s)) $out[$k] = $s[$k];

@@ -37,6 +37,7 @@ The main changes, most significant first:
 - **Page view counter and statistics** — the public viewer counts page views; editors see the count next to the feedback stats and a sortable table of all pages with views and ratings.
 - **HTML-capable footer content** — footer areas now support full HTML content instead of plain text only.
 - **Configurable share section visibility** — the share block in the page sidebar can be shown or hidden from settings.
+- **Optional page sync with the embedding page** — when the viewer runs in an iframe, it can report page changes to the host page and accept navigation requests via `postMessage` (Settings → *Sync with embedding page*, off by default). See [Embedding the Viewer in an iframe](#embedding-the-viewer-in-an-iframe).
 - **Optional single-space navigation mode** — the top space tabs can be hidden automatically when only one space exists.
 - **Role-aware shortcuts** — admin-only keyboard shortcuts are hidden or blocked for non-admin users.
 - **Platform-specific shortcut labels** — macOS shows ⌘/⇧, Windows and Linux show Ctrl/Shift.
@@ -183,7 +184,7 @@ No `npm install`. No environment variables. No database migrations. No Docker. J
 - **`.htaccess` protection** — blocks direct access to data files
 - **Optional simple access gate** — hides the site behind a basic token link and browser cookie
 - **Install-scoped cookies and sessions** — multiple docs instances on the same domain do not collide with each other
-- **Viewer-only iframe support** — `index.php` may be embedded; `editor.php` remains frame-blocked
+- **Viewer-only iframe support** — `index.php` may be embedded; `editor.php` remains frame-blocked. Optional page sync with the host page via `postMessage` (off by default; incoming messages are only accepted from the parent window)
 - **Verified uploads** — corrupt or truncated images are refused before they are stored
 - **Revocable MCP tokens** — AI agents get their own bearer tokens (stored as hashes only), and everything they write is sanitized
 - **No database** — no SQL injection possible. Ever.
@@ -356,6 +357,28 @@ Example:
 ```
 
 If the optional access gate is enabled, unlock the viewer once with `?token=...` on the docs domain first. After that, normal viewer navigation keeps clean URLs without repeating the token parameter.
+
+#### Syncing the displayed page with the host page (`postMessage`)
+
+By default the embedded viewer navigates on its own and the host page does not notice. Turn on **Settings → Sync with embedding page** in `editor.php` (setting `embedMessagingEnabled`, default `false`; also available via the MCP tools `get_settings` / `update_settings`) to keep both sides in sync. With the setting off, the viewer sends nothing and ignores incoming messages. With it on, and only while `index.php` runs inside a frame:
+
+| Direction | Message | Behavior |
+|---|---|---|
+| Viewer → host | `{ type: 'webstudio-docs:page-changed', pageId: '<id>' }` | Sent to `window.parent` (target origin `'*'`, only the page id goes out) whenever a page is displayed: on first load (including the first page chosen when no `?page=` is given), after clicking a link, on back/forward, and after switching spaces. The same id is not sent twice in a row. |
+| Host → viewer | `{ type: 'webstudio-docs:navigate', pageId: '<id>' }` | Accepted only from `window.parent` with a string `pageId`. Shows the page like a click in the navigation (switching the space if needed), without reloading the iframe. An empty `pageId` opens the first root page of the current space; unknown ids and the page already shown are ignored. Afterwards the viewer sends `page-changed` as usual. |
+
+Navigation requested by the host **replaces** the iframe's current history entry (`history.replaceState`) instead of adding one. The iframe and the host page share one session history, so otherwise a single step back would need two clicks on the browser's back button. Clicks inside the viewer still add history entries as before.
+
+Minimal host-side example:
+
+```js
+const frame = document.querySelector('iframe');
+window.addEventListener('message', e => {
+  if (e.source !== frame.contentWindow) return;
+  if (e.data?.type === 'webstudio-docs:page-changed') console.log('Docs page:', e.data.pageId);
+});
+frame.contentWindow.postMessage({ type: 'webstudio-docs:navigate', pageId: 'installation' }, 'https://your-domain.example');
+```
 
 ---
 

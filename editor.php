@@ -688,6 +688,13 @@ $_ogData = (function() {
         </div>
         <button class="toggle on" id="share-section-toggle" onclick="toggleShareSectionAvailability()"></button>
       </div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-row-label" data-i18n="settingsEmbedMessaging">Sync with embedding page</div>
+          <div class="settings-row-sub" data-i18n="settingsEmbedMessagingSub">Sync page changes with the embedding page via postMessage (for embedding as an iframe)</div>
+        </div>
+        <button class="toggle" id="embed-messaging-toggle" onclick="toggleEmbedMessaging()"></button>
+      </div>
     </div>
 
     <div class="settings-section">
@@ -1057,6 +1064,7 @@ let S = {
     shareSectionEnabled: true,
     readingTimeEnabled: true,
     translateEnabled: true,
+    embedMessagingEnabled: false,
   }
 };
 
@@ -1429,6 +1437,10 @@ function applySettings() {
   const readingTimeToggle = document.getElementById('reading-time-toggle');
   if (readingTimeToggle) readingTimeToggle.className = 'toggle ' + (isReadingTimeEnabled() ? 'on' : '');
 
+  // embed messaging toggle sync
+  const embedMessagingToggle = document.getElementById('embed-messaging-toggle');
+  if (embedMessagingToggle) embedMessagingToggle.className = 'toggle ' + (isEmbedMessagingEnabled() ? 'on' : '');
+
   // share section toggle sync
   const shareSectionToggle = document.getElementById('share-section-toggle');
   if (shareSectionToggle) shareSectionToggle.className = 'toggle ' + (isShareSectionEnabled() ? 'on' : '');
@@ -1484,6 +1496,12 @@ function toggleHideSingleSpaceTabs() {
 
 function toggleReadingTime() {
   S.settings.readingTimeEnabled = !isReadingTimeEnabled();
+  saveSettingsDebounced();
+  applySettings();
+}
+
+function toggleEmbedMessaging() {
+  S.settings.embedMessagingEnabled = !isEmbedMessagingEnabled();
   saveSettingsDebounced();
   applySettings();
 }
