@@ -560,7 +560,10 @@ $_ogData = (function() {
   <div class="modal page-stats-modal">
     <div class="page-stats-head">
       <div class="modal-title" data-i18n="statsTitle">Page statistics</div>
-      <button class="icon-btn" type="button" onclick="closePageStats()" data-i18n-attr="aria-label" data-i18n="btnClose" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+      <div class="page-stats-actions">
+        <button class="btn btn-ghost page-stats-reset-btn" type="button" id="page-stats-reset-btn" onclick="confirmResetPageViews()"><i class="fa-solid fa-rotate-left"></i><span data-i18n="statsResetViews">Reset views</span></button>
+        <button class="icon-btn" type="button" onclick="closePageStats()" data-i18n-attr="aria-label" data-i18n="btnClose" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+      </div>
     </div>
     <div class="page-stats-hint" data-i18n="statsHint">Views are counted in the public viewer, once per page per browser session. Visits while logged in are not counted.</div>
     <div class="page-stats-body" id="page-stats-body"></div>
@@ -4821,6 +4824,33 @@ async function openPageStats() {
 
 function closePageStats() {
   closeModal('page-stats-modal');
+}
+
+// Set every page's view counter back to 0 (api.php reset_views); ratings stay.
+function confirmResetPageViews() {
+  if (!S.authed) return;
+  showConfirm({
+    title: t('statsResetViewsTitle'),
+    msg: t('statsResetViewsMsg'),
+    icon: 'fa-rotate-left',
+    okLabel: t('statsResetViewsOk'),
+    onOk: resetPageViews,
+  });
+}
+
+async function resetPageViews() {
+  let done = false;
+  try {
+    const r = await fetch('api.php?action=reset_views', { method: 'POST', credentials: 'same-origin' });
+    const d = await r.json();
+    done = !!(d && d.ok);
+  } catch (e) { }
+  if (!done) { showToast(t('statsResetViewsFailed')); return; }
+  S.pages.forEach(p => { if ('viewCount' in p) p.viewCount = 0; });
+  pageStatsState.rows.forEach(r => { r.views = 0; });
+  renderPageStatsTable();
+  renderAdminRatingPanel(S.pages.find(p => p.id === S.currentPageId) || null);
+  showToast(t('statsResetViewsDone'));
 }
 
 function sortPageStats(key) {

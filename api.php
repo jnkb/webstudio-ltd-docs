@@ -350,6 +350,12 @@ case 'page_stats':
     }
     ok(['stats' => $stats]);
 
+// ── RESET VIEWS — set the view counter of every page back to zero ──
+case 'reset_views':
+    requirePost();
+    requireAuth();
+    ok(['reset' => resetAllPageViews()]);
+
 // ── SAVE RATING — public feedback for readers ──
 case 'save_rating':
     $body = json_decode(file_get_contents('php://input'), true);

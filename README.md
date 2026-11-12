@@ -34,7 +34,7 @@ The main changes, most significant first:
 - **Broader translation coverage** — UI texts that were still hardcoded are now routed through the shared i18n layer.
 - **Optional Google Translate button** — the translate button is now optional and can be disabled in settings.
 - **Saved page feedback** — page helpfulness feedback is persisted through the API; each browser tab casts one vote per page, and changing the rating replaces it instead of adding a new one.
-- **Page view counter and statistics** — the public viewer counts page views; editors see the count next to the feedback stats and a sortable table of all pages with views and ratings.
+- **Page view counter and statistics** — the public viewer counts page views; editors see the count next to the feedback stats and a sortable table of all pages with views and ratings, where *Reset views* sets every view counter back to 0 (ratings stay).
 - **HTML-capable footer content** — footer areas now support full HTML content instead of plain text only.
 - **Configurable share section visibility** — the share block in the page sidebar can be shown or hidden from settings.
 - **Optional page sync with the embedding page** — when the viewer runs in an iframe, it can report page changes to the host page and accept navigation requests via `postMessage` (Settings → *Sync with embedding page*, off by default). See [Embedding the Viewer in an iframe](#embedding-the-viewer-in-an-iframe).

@@ -331,6 +331,17 @@ function readPageViews($id): int {
     return $n;
 }
 
+// Reset every page's view counter to zero by deleting the counter files
+// (a missing file reads as 0, the next view recreates it). Ratings stay.
+// Returns the number of counters removed.
+function resetAllPageViews(): int {
+    $n = 0;
+    foreach (glob(PAGES_DIR . '/*_views.txt') ?: [] as $f) {
+        if (@unlink($f)) $n++;
+    }
+    return $n;
+}
+
 function sanitizePageId($id) {
     return preg_replace('/[^a-zA-Z0-9_-]/', '', (string)$id);
 }
